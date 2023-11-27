@@ -96,8 +96,10 @@ int main(int argc, char *argv[]) {
         // Wait for ACK with timeout
         tv.tv_sec = TIMEOUT;
         setsockopt(listen_sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
+        printf("Sending packet with sequence number: %d. %s\n", window[window_filled].seqnum, acks[window_filled] ? "Retransmission" : "New transmission");
 
         if (recvfrom(listen_sockfd, &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr *)&server_addr_from, &addr_size) < 0) {
+            printf("Timeout occurred. Resending unacknowledged packets in the window.\n");
             // Timeout occurred, resend all unacknowledged packets in the window
             for (int i = 0; i < window_filled; i++) {
                 if (!acks[i]) {
@@ -106,6 +108,7 @@ int main(int argc, char *argv[]) {
                 }
             }
         } else {
+            printf("Received ACK for sequence number: %d\n", ack_pkt.acknum);
             // Mark packet as acknowledged
             if (ack_pkt.acknum >= window_start && ack_pkt.acknum < window_start + WINDOW_SIZE) {
                 acks[ack_pkt.acknum - window_start] = 1;

@@ -62,12 +62,14 @@ int main() {
         recv_len = recvfrom(listen_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr_from, &addr_size);
         if (recv_len > 0) {
             printRecv(&buffer);
-
+            printf("Received packet with sequence number: %d\n", buffer.seqnum);
             // Store packet in buffer if out of order
             if (buffer.seqnum != expected_seq_num) {
+                printf("Out-of-order packet. Expected sequence number: %d, but received: %d\n", expected_seq_num, buffer.seqnum);
                 packet_buffer[buffer.seqnum] = buffer;
                 buffer_filled[buffer.seqnum] = 1;
             } else {
+                printf("Packet is in order. Expected sequence number: %d\n", expected_seq_num);
                 // Write the received data to the file and check buffer for next packets
                 do {
                     fwrite(buffer.payload, 1, buffer.length, fp);
@@ -83,6 +85,7 @@ int main() {
                 } while (1);
             }
 
+            printf("Sending ACK for sequence number: %d\n", expected_seq_num - 1);
             // Send ACK for the last in-order packet received
             build_packet(&ack_pkt, 0, expected_seq_num - 1, 0, 1, 0, NULL);
             sendto(send_sockfd, &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr *)&client_addr_to, sizeof(client_addr_to));
