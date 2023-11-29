@@ -1,0 +1,81 @@
+For one part of the file:
+
+Client sends file part
+Server responds with ack, signifying it's ok to continue
+
+(all these steps have timeout prevention)
+
+
+
+Client:
+
+concurrent_max = 2  // later this number will be dynamic, represents the number of concurrent packets we allow to be sent at the same time
+timout_time = 0.21  // this might be dynamic later
+window_state = [0, 0, 0, ...]  // all tracked packets 0 = not-sent, 1 = sent, 2 = acked
+window_timeout = [0.0, 0.0, 0.0, ...]
+first_seq = 0   // the sequence number of the first slot in the window
+
+Repeat on loop:
+
+ - on a loop, if first slot in the window is acked (2), move all the data to the left (both in window_state and window_timout), append a 0, and increment first_seq
+ 
+ - go through sent packets
+   - if time > packet timeout (from the array), set packet to not-sent
+   
+ - count the number of sent packets in window, store it in in_progress_count
+
+ - Send concurrent_max-in_progress_count of the not-sent packets in the window (from low to high). For each:
+   - the seq number of packet will be = first_seq + i
+   - attach the correct part of the file
+   - set it to sent
+   - when sending, set packet timout (in the array) to current_time+timeout_time
+   
+ - check if we recieve a packet. If so:
+   - make sure it's an ack packet (otherwise ignore packet), and let ack_n be the ack number
+   - let slot_affected = ack_n - first_seq - 1
+   - if window_state[slot_affected] == 1, then set window_state[slot_affected] = 2  // packet has been acked
+   - otherwise ignore the packet
+   
+	 
+
+
+Server:
+
+packet_buffer = [null, null, null, ...]  // same size as window, we will store packets here that are have been recieved and acked, but are out of order, and need to be written to the file later
+concurrent_max = 2  // later this number will be dynamic, represents the number of concurrent acks we allow to be sent at the same time
+timout_time = 0.21  // this might be dynamic later
+window_state = [0, 0, 0, ...]  // all tracked packets 0 = not-recieved, 1 = recieved
+window_timeout = [0.0, 0.0, 0.0, ...]
+first_seq = 0   // the sequence number of the first slot in the window
+
+Repeat on loop:
+
+ - on a loop, if first slot in the window is buffered (1): write the data to the file, move all the data to the left (in window_state, window_timout, and ), append a 0, and increment first_seq.
+ 
+ - go through ack-sent packets
+   - if time > packet timeout (from the array), set packet to recieved
+
+ - count the number of ack-sent packets in window, store it in in_progress_count
+
+ - Send concurrent_max-in_progress_count of the recieved packets in the window (from low to high). For each:
+   - set ack bit to 1
+   - the ack number of packet will be = first_seq + i + 1
+   - set it to sent
+   - when sending, set packet timout (in the array) to current_time+timeout_time
+   
+ - check if we recieve a packet. If so:
+   - let the packet's sequence number be seq_n
+   - let slot_affected = seq_n - first_seq
+   // here possibly we can send ack_n = first not-recieved point, and have client know that we recieved all packets up to ack_n - 1 ? It might decrease perf in some OoO cases. 
+   - if slot_affected < first_seq:
+     - send ack with ack_n = slot_affected + 1
+   - if slot_affected >= first_seq + WINDOW_SIZE:
+     - ignore packet
+   - if window_state[slot_affected] == 1:
+     - send ack with ack_n = slot_affected + 1
+   - if window_state[slot_affected] == 0:
+     - send ack with ack_n = slot_affected + 1
+	 - set buffer[slot_affected] to packet
+	 - set window_state[slot_affected] = 1
+
+

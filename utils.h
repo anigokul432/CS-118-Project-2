@@ -11,10 +11,9 @@
 #define CLIENT_PORT 6001
 #define SERVER_PORT 6002
 #define CLIENT_PORT_TO 5001
-#define PAYLOAD_SIZE 1024
-#define WINDOW_SIZE 5
-#define TIMEOUT 2
-#define MAX_SEQUENCE 1024
+#define PAYLOAD_SIZE 4
+#define WINDOW_SIZE 4
+#define MAX_SEQUENCE 17
 
 
 
@@ -30,7 +29,7 @@ struct packet {
 };
 
 // Utility function to build a packet
-void build_packet(struct packet* pkt, unsigned short seqnum, unsigned short acknum, char last, char ack,unsigned int length, const char* payload) {
+void build_packet(struct packet* pkt, int seqnum, int acknum, char last, char ack, unsigned int length, const char* payload) {
     pkt->seqnum = seqnum;
     pkt->acknum = acknum;
     pkt->ack = ack;

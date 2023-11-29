@@ -3,23 +3,43 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <time.h>
+#include <sys/time.h>
+
 
 #include "utils.h"
 
+long getCurrentTimeInMicroseconds() {
+    struct timeval currentTime;
+    gettimeofday(&currentTime, NULL);
+
+    // Convert seconds to microseconds and add microseconds
+    long microseconds = currentTime.tv_sec * 1000000L + currentTime.tv_usec;
+    return microseconds;
+}
+
+// function to create a packet with seq_n,file_segments with all the strings in order.  The packet payload is bytes seq_n * PAYLOAD_SIZE to (seq_n + 1) * PAYLOAD_SIZE - 1 (or less if the end of file)
+// return 0 if the packet is the last packet, 1 otherwise
+int create_packet(struct packet* pkt, unsigned short seq_n,char file_segments[MAX_SEQUENCE][PAYLOAD_SIZE]) {
+    build_packet(pkt, seq_n, 0, 0, 0, PAYLOAD_SIZE, file_segments[seq_n]);
+    if (seq_n == MAX_SEQUENCE - 1) {
+        pkt->last = 1;
+        return 0;
+    }
+    return 1;
+}
+
+void print_window_state(short window_state[WINDOW_SIZE], int first_seq) {
+    printf("Window state: ");
+    for (int i = 0; i < WINDOW_SIZE; i++) {
+        printf("%d:%d ", first_seq + i, window_state[i]);
+    }
+    printf("\n\n");
+}
 
 int main(int argc, char *argv[]) {
     int listen_sockfd, send_sockfd;
     struct sockaddr_in client_addr, server_addr_to, server_addr_from;
     socklen_t addr_size = sizeof(server_addr_to);
-    struct timeval tv;
-    struct packet pkt;
-    struct packet ack_pkt;
-    char buffer[PAYLOAD_SIZE];
-    unsigned short seq_num = 0;
-    unsigned short ack_num = 0;
-    char last = 0;
-    char ack = 0;
 
     // read filename from command line argument
     if (argc != 2) {
@@ -70,59 +90,106 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // TODO: Read from file, and initiate reliable data transfer to the server
-    unsigned short next_seq_num = 0;
-    unsigned short window_start = 0;
-    struct packet window[WINDOW_SIZE];
-    int acks[WINDOW_SIZE] = {0};
-    int window_filled = 0;
+    // store file segments in an array for easy access
+    char file_segments[MAX_SEQUENCE][PAYLOAD_SIZE];
 
-    while (window_start < MAX_SEQUENCE) {
-        // Fill the window with packets
-        while (window_filled < WINDOW_SIZE && next_seq_num < MAX_SEQUENCE) {
-            int bytes_read = fread(buffer, 1, PAYLOAD_SIZE, fp);
-            if (bytes_read > 0) {
-                build_packet(&window[window_filled], next_seq_num, 0, feof(fp), 0, bytes_read, buffer);
-                sendto(send_sockfd, &window[window_filled], sizeof(window[window_filled]), 0, (struct sockaddr *)&server_addr_to, sizeof(server_addr_to));
-                printSend(&window[window_filled], 0);
-                acks[window_filled] = 0;
-                next_seq_num++;
-                window_filled++;
-            } else {
-                break;
+    for (int i = 0; i < MAX_SEQUENCE; i++) {
+        fread(file_segments[i], 1, PAYLOAD_SIZE, fp);
+    }
+
+    // TODO: Read from file, and initiate reliable data transfer to the server
+     // all time in is microseconds
+    int concurrent_max = 5;
+    long timeout_time = 210000L; // 210ms
+
+
+    short window_state[WINDOW_SIZE] = {0};  // 0 = not-sent, 1 = sent, 2 = acked
+    double window_timeout[WINDOW_SIZE] = {0.0};
+    unsigned int first_seq = 0;
+
+    int in_progress_count;
+    long time;
+    struct packet recieved_packet;
+
+    while (first_seq < MAX_SEQUENCE) {
+
+        time = getCurrentTimeInMicroseconds();
+        
+        // move window as long as first packet is acked (this is O(n^2) but window is so small and c is so fast that it doesn't matter)
+        while (window_state[0] == 2) {
+
+            printf("Sliding window\n");
+
+            // shift window to the left
+            for (int i = 0; i < WINDOW_SIZE - 1; i++) {
+                window_state[i] = window_state[i + 1];
+                window_timeout[i] = window_timeout[i + 1];
+            }
+            window_state[WINDOW_SIZE - 1] = 0;
+            window_timeout[WINDOW_SIZE - 1] = 0.0;
+            first_seq++;
+
+            print_window_state(window_state, first_seq);
+        }
+
+        // set all timed out packets to not-sent
+        for (int i = 0; i < WINDOW_SIZE; i++) {
+            if (window_state[i] == 1 && time > window_timeout[i])
+                window_state[i] = 0;
+        }
+
+        // calculate in_progress_count, the number of packets sent but not acked
+        in_progress_count = 0;
+        for (int i = 0; i < WINDOW_SIZE; i++) {
+            if (window_state[i] == 1)
+                in_progress_count++;
+        }
+
+        // Send at most concurrent_max-in_progress_count of the not-sent packets in the window
+        for (int i = 0; i < WINDOW_SIZE && in_progress_count < concurrent_max; i++) {
+            if (window_state[i] == 0 && first_seq + i < MAX_SEQUENCE) {
+                // create packet
+                struct packet pkt;
+                create_packet(&pkt, first_seq + i, file_segments);
+                // send packet
+                sendto(send_sockfd, &pkt, sizeof(pkt), 0, (struct sockaddr *)&server_addr_to, sizeof(server_addr_to));
+                // update window state
+                window_state[i] = 1;
+                window_timeout[i] = time + timeout_time;
+                // update in_progress_count
+                in_progress_count++;
+
+                printf("Sending packet %d\n", first_seq + i);
+
+                print_window_state(window_state, first_seq);
+
             }
         }
 
-        // Wait for ACK with timeout
-        tv.tv_sec = TIMEOUT;
-        setsockopt(listen_sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
-        printf("Sending packet with sequence number: %d. %s\n", window[window_filled].seqnum, acks[window_filled] ? "Retransmission" : "New transmission");
+        // check if we recieve a packet
+        int recv_len = recvfrom(listen_sockfd, &recieved_packet, sizeof(recieved_packet), MSG_DONTWAIT, (struct sockaddr *)&server_addr_from, &addr_size);
+        if (recv_len > 0) {
+            printf("Recieved ACK %d\n", recieved_packet.acknum);
+            // make sure it's an ack packet (otherwise ignore packet)
+            if (recieved_packet.ack) {
+                unsigned short ack_n = recieved_packet.acknum;
+                int slot_affected = ack_n - first_seq - 1;
 
-        if (recvfrom(listen_sockfd, &ack_pkt, sizeof(ack_pkt), 0, (struct sockaddr *)&server_addr_from, &addr_size) < 0) {
-            printf("Timeout occurred. Resending unacknowledged packets in the window.\n");
-            // Timeout occurred, resend all unacknowledged packets in the window
-            for (int i = 0; i < window_filled; i++) {
-                if (!acks[i]) {
-                    sendto(send_sockfd, &window[i], sizeof(window[i]), 0, (struct sockaddr *)&server_addr_to, sizeof(server_addr_to));
-                    printSend(&window[i], 1); // Indicate that this is a resend
+                // set window state to acked if it's in the window and not already acked
+                if (slot_affected >= 0 && slot_affected < WINDOW_SIZE && window_state[slot_affected] == 1) {
+                    window_state[slot_affected] = 2;
                 }
             }
-        } else {
-            printf("Received ACK for sequence number: %d\n", ack_pkt.acknum);
-            // Mark packet as acknowledged
-            if (ack_pkt.acknum >= window_start && ack_pkt.acknum < window_start + WINDOW_SIZE) {
-                acks[ack_pkt.acknum - window_start] = 1;
-            }
-
-            // Slide window forward if possible
-            while (acks[0]) {
-                memmove(&acks[0], &acks[1], (WINDOW_SIZE - 1) * sizeof(int));
-                acks[WINDOW_SIZE - 1] = 0;
-                memmove(&window[0], &window[1], (WINDOW_SIZE - 1) * sizeof(struct packet));
-                window_filled--;
-                window_start++;
-            }
+            print_window_state(window_state, first_seq);
         }
+
+        // check if we have recieved the last ack, and last packet is in first slot of window
+        if (first_seq >= MAX_SEQUENCE) {
+            printf("All packets have been sent and ACKED\n");
+            print_window_state(window_state, first_seq);
+            break;
+        }
+        
     }
  
     
