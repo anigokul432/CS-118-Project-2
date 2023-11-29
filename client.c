@@ -141,8 +141,11 @@ int main(int argc, char *argv[]) {
 
         // set all timed out packets to not-sent
         for (int i = 0; i < WINDOW_SIZE; i++) {
-            if (window_state[i] == 1 && time > window_timeout[i])
+            if (window_state[i] == 1 && time > window_timeout[i]){
                 window_state[i] = 0;
+                // since we timed out, increase timeout_time
+                timeout_time *= 1.15;
+            }
         }
 
         // calculate in_progress_count, the number of packets sent but not acked
@@ -185,6 +188,10 @@ int main(int argc, char *argv[]) {
                 // set window state to acked if it's in the window and not already acked
                 if (slot_affected >= 0 && slot_affected < WINDOW_SIZE && window_state[slot_affected] == 1) {
                     window_state[slot_affected] = 2;
+                    // since we got an ack decrease timeout_time but make sure it doesn't go below 1ms (1000)
+                    timeout_time *= 0.95;
+                    if (timeout_time < 1000)
+                        timeout_time = 1000;
                 }
             }
             print_window_state(window_state, first_seq);

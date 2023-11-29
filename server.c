@@ -96,7 +96,10 @@ int main() {
 
     struct packet recieved_packet;
 
+    int wrote_last = 0;
+
     while (1) {
+        
         // on a loop, if first slot in the window is recieved (1)
         while (window_state[0] == 1) {
             // write the data to the file, move all the data to the left (in window_state, window_timout, and ), append a 0, and increment first_seq.
@@ -104,6 +107,8 @@ int main() {
             printf("Writing packet %d to file, and sliding window. Payload = \"%s\"\n", first_seq, packet_buffer[0]->payload);
 
             write_packet_to_file(packet_buffer[0], fp);
+
+            wrote_last = packet_buffer[0]->last;
 
             // free the memory for packet_buffer[0]
             free(packet_buffer[0]);
@@ -117,6 +122,12 @@ int main() {
             first_seq++;
 
             print_window_state(window_state, first_seq);
+        }
+
+        // if we have written the last packet, and the window is empty, we are done
+        if (wrote_last) {
+            printf("Wrote last packet and window is empty, so we are done.\n");
+            break;
         }
 
         // check if we recieve a packet

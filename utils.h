@@ -12,7 +12,7 @@
 #define SERVER_PORT 6002
 #define CLIENT_PORT_TO 5001
 #define PAYLOAD_SIZE 1024
-#define WINDOW_SIZE 5
+#define WINDOW_SIZE 10
 
 
 
