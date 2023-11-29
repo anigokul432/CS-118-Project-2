@@ -34,6 +34,7 @@ int create_ack(struct packet* pkt, unsigned short ack_n) {
 int write_packet_to_file(struct packet* pkt, FILE* fp) {
     printf("Writing string of size %d to file in method. Payload = \"%s\"\n", pkt->length, pkt->payload);
     fwrite(pkt->payload, 1, pkt->length, fp);
+    fflush(fp);
     return 0;
 }
 
