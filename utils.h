@@ -11,9 +11,8 @@
 #define CLIENT_PORT 6001
 #define SERVER_PORT 6002
 #define CLIENT_PORT_TO 5001
-#define PAYLOAD_SIZE 4
-#define WINDOW_SIZE 4
-#define MAX_SEQUENCE 17
+#define PAYLOAD_SIZE 1024
+#define WINDOW_SIZE 5
 
 
 

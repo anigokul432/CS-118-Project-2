@@ -19,10 +19,11 @@ long getCurrentTimeInMicroseconds() {
 
 // function to create a packet with seq_n,file_segments with all the strings in order.  The packet payload is bytes seq_n * PAYLOAD_SIZE to (seq_n + 1) * PAYLOAD_SIZE - 1 (or less if the end of file)
 // return 0 if the packet is the last packet, 1 otherwise
-int create_packet(struct packet* pkt, unsigned short seq_n,char file_segments[MAX_SEQUENCE][PAYLOAD_SIZE]) {
+int create_packet(struct packet* pkt, unsigned short seq_n, char file_segments[][PAYLOAD_SIZE], int max_sequence) {
     build_packet(pkt, seq_n, 0, 0, 0, PAYLOAD_SIZE, file_segments[seq_n]);
-    if (seq_n == MAX_SEQUENCE - 1) {
+    if (seq_n == max_sequence - 1) {
         pkt->last = 1;
+        pkt->length = strlen(file_segments[seq_n]);
         return 0;
     }
     return 1;
@@ -90,10 +91,16 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // store file segments in an array for easy access
-    char file_segments[MAX_SEQUENCE][PAYLOAD_SIZE];
+    // caclulate max_sequence, = ceil(file_size / PAYLOAD_SIZE)
+    fseek(fp, 0L, SEEK_END);
+    int file_size = ftell(fp);
+    fseek(fp, 0L, SEEK_SET);
+    unsigned int max_sequence = (file_size + PAYLOAD_SIZE - 1) / PAYLOAD_SIZE;
 
-    for (int i = 0; i < MAX_SEQUENCE; i++) {
+    // store file segments in an array for easy access
+    char file_segments[max_sequence][PAYLOAD_SIZE];
+
+    for (unsigned int i = 0; i < max_sequence; i++) {
         fread(file_segments[i], 1, PAYLOAD_SIZE, fp);
     }
 
@@ -111,7 +118,7 @@ int main(int argc, char *argv[]) {
     long time;
     struct packet recieved_packet;
 
-    while (first_seq < MAX_SEQUENCE) {
+    while (first_seq < max_sequence) {
 
         time = getCurrentTimeInMicroseconds();
         
@@ -147,10 +154,10 @@ int main(int argc, char *argv[]) {
 
         // Send at most concurrent_max-in_progress_count of the not-sent packets in the window
         for (int i = 0; i < WINDOW_SIZE && in_progress_count < concurrent_max; i++) {
-            if (window_state[i] == 0 && first_seq + i < MAX_SEQUENCE) {
+            if (window_state[i] == 0 && first_seq + i < max_sequence) {
                 // create packet
                 struct packet pkt;
-                create_packet(&pkt, first_seq + i, file_segments);
+                create_packet(&pkt, first_seq + i, file_segments, max_sequence);
                 // send packet
                 sendto(send_sockfd, &pkt, sizeof(pkt), 0, (struct sockaddr *)&server_addr_to, sizeof(server_addr_to));
                 // update window state
@@ -184,7 +191,7 @@ int main(int argc, char *argv[]) {
         }
 
         // check if we have recieved the last ack, and last packet is in first slot of window
-        if (first_seq >= MAX_SEQUENCE) {
+        if (first_seq >= max_sequence) {
             printf("All packets have been sent and ACKED\n");
             print_window_state(window_state, first_seq);
             break;
