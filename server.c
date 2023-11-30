@@ -16,7 +16,7 @@ long getCurrentTimeInMicroseconds() {
     return microseconds;
 }
 
-void print_window_state(short window_state[WINDOW_SIZE], int first_seq) {
+void print_window_state(int window_state[WINDOW_SIZE], int first_seq) {
     printf("Window state: ");
     for (int i = 0; i < WINDOW_SIZE; i++) {
         printf("%d:%d ", first_seq + i, window_state[i]);
@@ -32,7 +32,6 @@ int create_ack(struct packet* pkt, unsigned short ack_n) {
 }
 
 int write_packet_to_file(struct packet* pkt, FILE* fp) {
-    printf("Writing string of size %d to file in method. Payload = \"%s\"\n", pkt->length, pkt->payload);
     fwrite(pkt->payload, 1, pkt->length, fp);
     fflush(fp);
     return 0;
@@ -91,12 +90,14 @@ int main() {
     // int concurrent_max = 2;
     // long timeout_time = 210000L; // 210ms
     // long time;
-    short window_state[WINDOW_SIZE]; // 0 = not-recieved, 1 = recieved
+    int window_state[WINDOW_SIZE]; // 0 = not-recieved, 1 = recieved
     int first_seq = 0;
 
     struct packet recieved_packet;
 
     int wrote_last = 0;
+
+    printf("-------------------- SERVER -------------------\n\n\n");
 
     while (1) {
         
@@ -104,7 +105,7 @@ int main() {
         while (window_state[0] == 1) {
             // write the data to the file, move all the data to the left (in window_state, window_timout, and ), append a 0, and increment first_seq.
 
-            printf("Writing packet %d to file, and sliding window. Payload = \"%s\"\n", first_seq, packet_buffer[0]->payload);
+            printf("Writing packet %d to file, and sliding window. Payload Size = %d\n", first_seq, packet_buffer[0]->length);
 
             write_packet_to_file(packet_buffer[0], fp);
 
@@ -126,20 +127,19 @@ int main() {
 
         // if we have written the last packet, and the window is empty, we are done
         if (wrote_last) {
-            printf("Wrote last packet and window is empty, so we are done.\n");
+            printf("Wrote last packet and window is empty, so server is done.\n\n\n\n");
             break;
         }
 
         // check if we recieve a packet
         if (recvfrom(listen_sockfd, &recieved_packet, sizeof(recieved_packet), 0, (struct sockaddr *)&client_addr_from, &addr_size) > 0 && recieved_packet.seqnum < WINDOW_SIZE + first_seq) {
 
-            printf("Recieved packet %d\n", recieved_packet.seqnum);
             
             int seq_n = recieved_packet.seqnum;
             int slot_affected = seq_n - first_seq;
             int ack_n = seq_n + 1;
 
-            printf("first_seq = %d, so slot_affected = %d.\nSending ACK=%d\n", first_seq, slot_affected, ack_n);
+            printf("Recieved Packet. seq_n = %d, slot_affected = %d.\nSending ACK=%d\n", first_seq, slot_affected, ack_n);
 
             // send ack packet
             create_ack(&buffer, ack_n);
@@ -158,7 +158,6 @@ int main() {
         }
 
     }
-
     
 
     fclose(fp);
