@@ -16,14 +16,13 @@ long getCurrentTimeInMicroseconds() {
     return microseconds;
 }
 
-void print_window_state(int window_state[WINDOW_SIZE], int first_seq) {
-    printf("Window state: ");
+void print_window_state(short window_state[WINDOW_SIZE], int first_seq) {
+   // printf("Window state: ");
     for (int i = 0; i < WINDOW_SIZE; i++) {
-        printf("%d:%d ", first_seq + i, window_state[i]);
+       // printf("%d:%d ", first_seq + i, window_state[i]);
     }
-    printf("\n\n");
+   // printf("\n\n");
 }
-
 
 // function to create a packet with ack_n, no payload, no seq_n, no last, ack = 1
 int create_ack(struct packet* pkt, unsigned short ack_n) {
@@ -90,14 +89,14 @@ int main() {
     // int concurrent_max = 2;
     // long timeout_time = 210000L; // 210ms
     // long time;
-    int window_state[WINDOW_SIZE]; // 0 = not-recieved, 1 = recieved
+    short window_state[WINDOW_SIZE]; // 0 = not-recieved, 1 = recieved
     int first_seq = 0;
 
     struct packet recieved_packet;
 
     int wrote_last = 0;
 
-    printf("-------------------- SERVER -------------------\n\n\n");
+   // printf("-------------------- SERVER -------------------\n\n\n");
 
     while (1) {
         
@@ -105,7 +104,7 @@ int main() {
         while (window_state[0] == 1) {
             // write the data to the file, move all the data to the left (in window_state, window_timout, and ), append a 0, and increment first_seq.
 
-            printf("Writing packet %d to file, and sliding window. Payload Size = %d\n", first_seq, packet_buffer[0]->length);
+           // printf("Writing packet %d to file, and sliding window. Payload Size = %d\n", first_seq, packet_buffer[0]->length);
 
             write_packet_to_file(packet_buffer[0], fp);
 
@@ -127,7 +126,7 @@ int main() {
 
         // if we have written the last packet, and the window is empty, we are done
         if (wrote_last) {
-            printf("Wrote last packet and window is empty, so server is done.\n\n\n\n");
+           // printf("Wrote last packet and window is empty, so server is done.\n\n\n\n");
             break;
         }
 
@@ -139,7 +138,7 @@ int main() {
             int slot_affected = seq_n - first_seq;
             int ack_n = seq_n + 1;
 
-            printf("Recieved Packet. seq_n = %d, slot_affected = %d.\nSending ACK=%d\n", first_seq, slot_affected, ack_n);
+           // printf("Recieved Packet. seq_n = %d, slot_affected = %d.\nSending ACK=%d\n", first_seq, slot_affected, ack_n);
 
             // send ack packet
             create_ack(&buffer, ack_n);
@@ -158,7 +157,14 @@ int main() {
         }
 
     }
-    
+
+
+    for (int i = 0; i < 10; i++){
+        for (int ack_n = first_seq - WINDOW_SIZE; ack_n <= first_seq; ack_n++) {
+            create_ack(&buffer, ack_n);
+            sendto(send_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr_to, sizeof(client_addr_to));
+        }
+    }
 
     fclose(fp);
     close(listen_sockfd);

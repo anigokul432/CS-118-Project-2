@@ -29,12 +29,12 @@ int create_packet(struct packet* pkt, unsigned short seq_n, char file_segments[]
     return 1;
 }
 
-void print_window_state(int window_state[WINDOW_SIZE], int first_seq) {
-    printf("Window state: ");
+void print_window_state(short window_state[WINDOW_SIZE], int first_seq) {
+   // printf("Window state: ");
     for (int i = 0; i < WINDOW_SIZE; i++) {
-        printf("%d:%d ", first_seq + i, window_state[i]);
+       // printf("%d:%d ", first_seq + i, window_state[i]);
     }
-    printf("\n\n");
+   // printf("\n\n");
 }
 
 int main(int argc, char *argv[]) {
@@ -44,7 +44,7 @@ int main(int argc, char *argv[]) {
 
     // read filename from command line argument
     if (argc != 2) {
-        printf("Usage: ./client <filename>\n");
+       // printf("Usage: ./client <filename>\n");
         return 1;
     }
     char *filename = argv[1];
@@ -110,7 +110,7 @@ int main(int argc, char *argv[]) {
     long timeout_time = 210000L; // 210ms
 
 
-    int window_state[WINDOW_SIZE] = {0};  // 0 = not-sent, 1 = sent, 2 = acked
+    short window_state[WINDOW_SIZE] = {0};  // 0 = not-sent, 1 = sent, 2 = acked
     double window_timeout[WINDOW_SIZE] = {0.0};
     unsigned int first_seq = 0;
 
@@ -119,9 +119,9 @@ int main(int argc, char *argv[]) {
     struct packet recieved_packet;
 
 
-    printf("-------------------- CLIENT -------------------\n");
+   // printf("-------------------- CLIENT -------------------\n");
 
-    printf("Initial timeout_time: %ld\nInitial concurrent_max=%d\nFile is %d bytes long, and will be sent into %d packets total\n\n\n", timeout_time, concurrent_max, file_size, max_sequence);
+   // printf("Initial timeout_time: %ld\nInitial concurrent_max=%d\nFile is %d bytes long, and will be sent into %d packets total\n\n\n", timeout_time, concurrent_max, file_size, max_sequence);
 
     while (first_seq < max_sequence) {
 
@@ -130,7 +130,7 @@ int main(int argc, char *argv[]) {
         // move window as long as first packet is acked (this is O(n^2) but window is so small and c is so fast that it doesn't matter)
         while (window_state[0] == 2) {
 
-            printf("First Slot is ACKED, sliding window\n");
+           // printf("First Slot is ACKED, sliding window\n");
 
             // shift window to the left
             for (int i = 0; i < WINDOW_SIZE - 1; i++) {
@@ -150,7 +150,7 @@ int main(int argc, char *argv[]) {
                 window_state[i] = 0;
                 // since we timed out, increase timeout_time
                 timeout_time *= 1.15;
-                printf("Packet %d timed out, so updating timeout_time to %ld\n", first_seq + i, timeout_time);
+               // printf("Packet %d timed out, so updating timeout_time to %ld\n\n", first_seq + i, timeout_time);
             }
         }
 
@@ -175,7 +175,7 @@ int main(int argc, char *argv[]) {
                 // update in_progress_count
                 in_progress_count++;
 
-                printf("Sending packet %d - sending availability is now = %d/%d\n", first_seq + i, in_progress_count, concurrent_max);
+               // printf("Sending packet %d - sending availability is now = %d/%d\n", first_seq + i, in_progress_count, concurrent_max);
 
                 print_window_state(window_state, first_seq);
 
@@ -198,9 +198,9 @@ int main(int argc, char *argv[]) {
                     if (timeout_time < 1000)
                         timeout_time = 1000;
 
-                    printf("Recieved ACK %d, packet arrived so updating timeout_time to %ld\n", recieved_packet.acknum, timeout_time);
+                   // printf("Recieved ACK %d, packet arrived so updating timeout_time to %ld\n", recieved_packet.acknum, timeout_time);
                 } else {
-                    printf("Recieved ACK %d, but we already recieved ACK, ignoring\n", recieved_packet.acknum);
+                   // printf("Recieved ACK %d, but we already recieved ACK, ignoring\n", recieved_packet.acknum);
                 }
             }
             print_window_state(window_state, first_seq);
@@ -208,7 +208,7 @@ int main(int argc, char *argv[]) {
 
         // check if we have recieved the last ack, and last packet is in first slot of window
         if (first_seq >= max_sequence) {
-            printf("All packets have been sent and ACKED, so we are done\n\n\n\n\n\n");
+           // printf("All packets have been sent and ACKED, so we are done\n\n\n\n\n\n");
             print_window_state(window_state, first_seq);
             break;
         }

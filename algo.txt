@@ -35,8 +35,10 @@ Repeat on loop:
    - let slot_affected = ack_n - first_seq - 1
    - if window_state[slot_affected] == 1, then set window_state[slot_affected] = 2  // packet has been acked
    - otherwise ignore the packet
-   
-	 
+
+
+
+
 
 
 Server:
@@ -77,5 +79,7 @@ Repeat on loop:
      - send ack with ack_n = slot_affected + 1
 	 - set buffer[slot_affected] to packet
 	 - set window_state[slot_affected] = 1
+
+
 
 
