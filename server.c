@@ -93,7 +93,7 @@ int main() {
     short window_state[WINDOW_SIZE]; // 0 = not-recieved, 1 = recieved
     int first_seq = 0;
 
-    short do_print = 1;
+    short do_print = 0;
 
     struct packet recieved_packet;
 

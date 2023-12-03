@@ -99,7 +99,7 @@ int main(int argc, char *argv[]) {
     fseek(fp, 0L, SEEK_SET);
     unsigned int max_sequence = (file_size + PAYLOAD_SIZE - 1) / PAYLOAD_SIZE;
 
-    short do_print = 1;
+    short do_print = 0;
 
     // store file segments in an array for easy access
     char file_segments[max_sequence][PAYLOAD_SIZE];
