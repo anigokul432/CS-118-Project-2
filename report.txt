@@ -2,9 +2,27 @@ Please concisely describe your congestion control scheme here.
 No need to be verbose, brief descriptions/bullet points are preferred.
 
 We implemented a congestion control scheme that is similar to TCP Tahoe.
-We have a fixed window size, but we have a variable called concurrent that represents the number of packets that can be sent at once.
-We keep track of the number of acks for each segment.
-If we receive 3 ACKs for a segment, we retransmit that segment and set concurrent and slow_start_threshold to concurrent/2.
-When we start, we are in slow start mode, and we double concurrent every time we receive an ACK for an unACKed segment.
-When we reach slow_start_threshold, we switch to congestion avoidance mode, and we increment concurrent by 1 every time we receive an ACK for an unACKed segment.
-If a timeout occurs, we retransmit the segment and set slow_start_threshold to concurrent/2, and then concurrent to 1, and we switch to slow start mode.
+
+We have a fixed window size, but we have a variable called `concurrent` 
+that represents the number of packets that can be sent at once.
+
+We also keep track of the number of acks for each segment in an array.
+
+We start with concurrent = 1, is_slow_start = 1, and 
+slow_start_threshold = 8.
+
+When we start, we are in slow start mode, and we double concurrent every 
+time we receive an ACK for an unACKed segment.
+
+When we reach slow_start_threshold, we switch to congestion avoidance 
+mode, and we increment concurrent by 1 every time we receive an ACK for 
+an unACKed segment, this is additive increase.
+
+On failure, we use multiplicative decrease.
+
+If we receive 3 ACKs for a segment, we retransmit that segment and set 
+concurrent and slow_start_threshold to concurrent/2.
+
+If a timeout occurs, we retransmit the segment and set 
+slow_start_threshold to concurrent/2, and then concurrent to 1, and we 
+switch back to slow start mode.
