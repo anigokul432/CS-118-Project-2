@@ -93,7 +93,7 @@ int main() {
     short window_state[WINDOW_SIZE]; // 0 = not-recieved, 1 = recieved
     int first_seq = 0;
 
-    short do_print = 0;
+    short do_print = 1;
 
     struct packet recieved_packet;
 
@@ -116,9 +116,6 @@ int main() {
 
             wrote_last = packet_buffer[0]->last;
 
-            // free the memory for packet_buffer[0]
-            free(packet_buffer[0]);
-
             for (int i = 0; i < WINDOW_SIZE - 1; i++) {
                 window_state[i] = window_state[i + 1];
                 packet_buffer[i] = packet_buffer[i + 1];
@@ -139,7 +136,6 @@ int main() {
         // check if we recieve a packet
         if (recvfrom(listen_sockfd, &recieved_packet, sizeof(recieved_packet), 0, (struct sockaddr *)&client_addr_from, &addr_size) > 0 && recieved_packet.seqnum < WINDOW_SIZE + first_seq) {
 
-            
             int seq_n = recieved_packet.seqnum;
             int slot_affected = seq_n - first_seq;
             int ack_n = seq_n + 1;
@@ -156,6 +152,21 @@ int main() {
                 memcpy(new_packet, &recieved_packet, sizeof(struct packet));
                 packet_buffer[slot_affected] = new_packet;
                 window_state[slot_affected] = 1;
+            }
+
+            // get first_not_recieved, the index of the first slot in the window that is not recieved
+            int first_not_recieved = -1;
+            for (int i = 0; i < WINDOW_SIZE; i++) {
+                if (window_state[i] == 0) {
+                    first_not_recieved = i;
+                    break;
+                }
+            }
+
+            if (first_not_recieved >= 0 && first_not_recieved < slot_affected) {
+                // send ack packet for the spot before it, that way client knows to send first_not_recieved again
+                create_ack(&buffer, first_seq + first_not_recieved);
+                sendto(send_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr_to, sizeof(client_addr_to));
             }
 
             print_window_state(window_state, first_seq, do_print);

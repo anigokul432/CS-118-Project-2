@@ -13,6 +13,7 @@ concurrent_max = 2  // later this number will be dynamic, represents the number 
 timout_time = 0.21  // this might be dynamic later
 window_state = [0, 0, 0, ...]  // all tracked packets 0 = not-sent, 1 = sent, 2 = acked
 window_timeout = [0.0, 0.0, 0.0, ...]
+ack_count = [0, 0, 0, ...]  // number of acks recieved for each packet
 first_seq = 0   // the sequence number of the first slot in the window
 
 Repeat on loop:
@@ -34,7 +35,11 @@ Repeat on loop:
    - make sure it's an ack packet (otherwise ignore packet), and let ack_n be the ack number
    - let slot_affected = ack_n - first_seq - 1
    - if window_state[slot_affected] == 1, then set window_state[slot_affected] = 2  // packet has been acked
-   - otherwise ignore the packet
+      - // do slow start stuff here
+   - increase ack_count[slot_affected] by 1 in all cases
+   - if ack_count[slot_affected] >= 3, then set window_state[slot_affected + 1] = 0  // server signified that it needs this packet again, so we will resend it
+      - // here do fast recovery stuff
+      
 
 
 
@@ -79,6 +84,7 @@ Repeat on loop:
      - send ack with ack_n = slot_affected + 1
 	 - set buffer[slot_affected] to packet
 	 - set window_state[slot_affected] = 1
+   - Also send an ack for the first not-recieved packet before the packet we just recieved (if it exists)
 
 
 
