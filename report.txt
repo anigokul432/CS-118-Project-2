@@ -1,7 +1,7 @@
 Please concisely describe your congestion control scheme here.
 No need to be verbose, brief descriptions/bullet points are preferred.
 
-We implemented a congestion control scheme that is based on TCP Tahoe.
+We implemented a congestion control scheme that is similar to TCP Tahoe.
 We have a fixed window size, but we have a variable called concurrent that represents the number of packets that can be sent at once.
 We keep track of the number of acks for each segment.
 If we receive 3 ACKs for a segment, we retransmit that segment and set concurrent and slow_start_threshold to concurrent/2.
