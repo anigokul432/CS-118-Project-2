@@ -46,7 +46,7 @@ long ceiled_div(long a, long b) {
 int main(int argc, char *argv[]) {
     
     // VARIABLE TO TOGGLE PRINTING AND TIMEOUT STRATEGY ---------------------------
-    short do_print = 0;
+    short do_print = 1;
     short do_timeout_estimation = 0;
 
     int listen_sockfd, send_sockfd;
@@ -136,7 +136,7 @@ int main(int argc, char *argv[]) {
     int concurrent_max = WINDOW_SIZE;
     int ack_dupe_limit = 3;
 
-    unsigned long timeout_time = 200000L; // 250ms = 2.5 * propogation delay
+    unsigned long timeout_time = 210000L; // 200ms
 
     short window_state[WINDOW_SIZE];  // 0 = not-sent, 1 = sent, 2 = acked
     int ack_count[WINDOW_SIZE]; // number of times we have recieved an ack for this packet, used for congestion control
@@ -206,7 +206,7 @@ int main(int argc, char *argv[]) {
                 concurrent = 1;
                 is_slow_start = 1;
                 
-                if(do_print) printf("Packet %d timed out. timeout=%ld, concurrent=%d, slow_start_threshold=%d\n\n\n", first_seq + i, timeout_time, concurrent, slow_start_threshold);
+                if(do_print) printf("Packet %d timed out. It took %ld ms, timeout=%ld, concurrent=%d, slow_start_threshold=%d\n\n\n", first_seq + i, time - window_time_sent[i], timeout_time, concurrent, slow_start_threshold);
             }
         }
 
@@ -270,9 +270,10 @@ int main(int argc, char *argv[]) {
                     }
 
 
-                   if(do_print) printf("Recieved ACK %d, packet arrived. timeout=%ld, concurrent=%d, slow_start_threshold=%d\n", recieved_packet.acknum, timeout_time, concurrent, slow_start_threshold);
+                    if(do_print) printf("Recieved ACK %d, packet arrived. timeout=%ld, concurrent=%d, slow_start_threshold=%d\n", recieved_packet.acknum, timeout_time, concurrent, slow_start_threshold);
+                    if(do_print) printf("RTT for this packet was %ld ms\n", time - window_time_sent[slot_affected]);
                 } else {
-                   if(do_print) printf("Recieved ACK %d, but we already recieved ACK, ignoring\n", recieved_packet.acknum);
+                    if(do_print) printf("Recieved ACK %d, but we already recieved ACK, ignoring\n", recieved_packet.acknum);
                 }
 
                 if (ack_count[slot_affected] >= ack_dupe_limit) {

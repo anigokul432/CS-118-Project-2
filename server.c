@@ -40,7 +40,7 @@ int write_packet_to_file(struct packet* pkt, FILE* fp) {
 
 int main() {
     // VARIABLE TO TOGGLE PRINTING AND TIMEOUT STRATEGY ---------------------------
-    short do_print = 1;
+    short do_print = 0;
 
     int listen_sockfd, send_sockfd;
     struct sockaddr_in server_addr, client_addr_from, client_addr_to;
