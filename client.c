@@ -136,7 +136,7 @@ int main(int argc, char *argv[]) {
     int concurrent_max = WINDOW_SIZE;
     int ack_dupe_limit = 3;
 
-    unsigned long timeout_time = 250000L; // 250ms = 2.5 * propogation delay
+    unsigned long timeout_time = 200000L; // 250ms = 2.5 * propogation delay
 
     short window_state[WINDOW_SIZE];  // 0 = not-sent, 1 = sent, 2 = acked
     int ack_count[WINDOW_SIZE]; // number of times we have recieved an ack for this packet, used for congestion control
