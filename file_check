@@ -1,0 +1,2 @@
+cmp --silent input.txt output.txt && echo '### SUCCESS: Files Are Identical! ###' || echo '### WARNING: Files Are Different! ###'
+

@@ -70,10 +70,10 @@ def producer(bucket, listen_port):
                 continue
             # print(f'Packet received: {data}')
             success = bucket.enqueue(data)
-            # if success:
-            #     print(f'Packet enqueued: {data}, queue size: {bucket.q.qsize()}')
-            # else:
-            #     print(f'Packet dropped: {data}')
+            if success:
+                print(f'Packet enqueued, queue size: {bucket.q.qsize()}')
+            else:
+                print(f'Packet dropped')
 
 def delayed_send(data, addr, port, delay):
     time.sleep(delay)

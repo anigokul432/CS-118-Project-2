@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/time.h> 
 
 #include "utils.h"
 
@@ -20,7 +21,7 @@ void print_window_state(short window_state[WINDOW_SIZE], int first_seq, short do
         return;
     printf("Window state: ");
     for (int i = 0; i < WINDOW_SIZE; i++) {
-       printf("%d:%d ", first_seq + i, window_state[i]);
+        printf("%d:%hd ", first_seq + i, window_state[i]);
     }
    printf("\n\n");
 }
@@ -38,6 +39,9 @@ int write_packet_to_file(struct packet* pkt, FILE* fp) {
 }
 
 int main() {
+    // VARIABLE TO TOGGLE PRINTING AND TIMEOUT STRATEGY ---------------------------
+    short do_print = 0;
+
     int listen_sockfd, send_sockfd;
     struct sockaddr_in server_addr, client_addr_from, client_addr_to;
     struct packet buffer;
@@ -91,9 +95,13 @@ int main() {
     // long timeout_time = 210000L; // 210ms
     // long time;
     short window_state[WINDOW_SIZE]; // 0 = not-recieved, 1 = recieved
-    int first_seq = 0;
 
-    short do_print = 0;
+    for (int i = 0; i < WINDOW_SIZE; i++) {
+        window_state[i] = 0;
+        packet_buffer[i] = NULL;
+    }
+
+    int first_seq = 0;
 
     struct packet recieved_packet;
 
@@ -110,7 +118,7 @@ int main() {
         while (window_state[0] == 1) {
             // write the data to the file, move all the data to the left (in window_state, window_timout, and ), append a 0, and increment first_seq.
 
-            if(do_print) printf("Writing packet %d to file, and sliding window. Payload Size = %d\n", first_seq, packet_buffer[0]->length);
+            if(do_print) printf("Writing packet %d to file, and sliding window.\n", first_seq);
 
             write_packet_to_file(packet_buffer[0], fp);
 
@@ -124,7 +132,9 @@ int main() {
             packet_buffer[WINDOW_SIZE - 1] = NULL;
             first_seq++;
 
-            print_window_state(window_state, first_seq, do_print);
+            if(do_print) printf("\n\n");
+
+            // print_window_state(window_state, first_seq, do_print);
         }
 
         // if we have written the last packet, and the window is empty, we are done
@@ -140,7 +150,7 @@ int main() {
             int slot_affected = seq_n - first_seq;
             int ack_n = seq_n + 1;
 
-            if(do_print) printf("Recieved Packet. seq_n = %d, slot_affected = %d.\nSending ACK=%d\n", first_seq, slot_affected, ack_n);
+            if(do_print) printf("Recieved Packet.\nSending ACK=%d\n", ack_n);
 
             // send ack packet
             create_ack(&buffer, ack_n);
@@ -165,11 +175,14 @@ int main() {
 
             if (first_not_recieved >= 0 && first_not_recieved < slot_affected) {
                 // send ack packet for the spot before it, that way client knows to send first_not_recieved again
+                if(do_print) printf("Also Sending ACK=%d For our missing packet\n", first_seq + first_not_recieved);
                 create_ack(&buffer, first_seq + first_not_recieved);
                 sendto(send_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr_to, sizeof(client_addr_to));
             }
 
-            print_window_state(window_state, first_seq, do_print);
+            if(do_print) printf("\n\n");
+
+            // print_window_state(window_state, first_seq, do_print);
 
         }
 
@@ -177,15 +190,17 @@ int main() {
 
     // printf("over with server");
 
+    // wait 100ms
+    usleep(100000);
+
     for (int i = 0; i < 20; i++){
+        if(do_print) printf("Sending final ACKS %d\n", i);
         for (int ack_n = first_seq - WINDOW_SIZE; ack_n <= first_seq; ack_n++) {
             create_ack(&buffer, ack_n);
             sendto(send_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr_to, sizeof(client_addr_to));
-            if(do_print) printf("Sending ACK=%d\n", ack_n);
         }
+        usleep(10000);
     }
-
-    // printf("Done with server");
 
     fclose(fp);
     close(listen_sockfd);
