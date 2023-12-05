@@ -106,7 +106,7 @@ int main(int argc, char *argv[]) {
     fseek(fp, 0L, SEEK_END);
     long file_size = ftell(fp);
     fseek(fp, 0L, SEEK_SET);
-    long max_sequence = ceiled_div(file_size, PAYLOAD_SIZE-1);
+    long max_sequence = ceiled_div(file_size, PAYLOAD_SIZE);
 
     // store file segments in an array for easy access
     char file_segments[max_sequence][PAYLOAD_SIZE];
