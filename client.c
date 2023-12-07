@@ -246,8 +246,8 @@ int main(int argc, char *argv[]) {
                 // since we timed out, increase timeout_time
                 if (do_timeout_estimation){
                     timeout_time *= 1.01;
-                    if (timeout_time > 250000L)
-                        timeout_time = 250000L;
+                    if (timeout_time > 500000L)
+                        timeout_time = 500000L;
                 }
                 
                 slow_start_threshold = concurrent / 2;
@@ -302,8 +302,8 @@ int main(int argc, char *argv[]) {
                 if (slot_affected >= 0 && slot_affected < WINDOW_SIZE && window_state[slot_affected] == 1) {
                     window_state[slot_affected] = 2;
 
-                    if (do_timeout_estimation && timeout_time > time - window_time_sent[slot_affected])
-                        timeout_time = time - window_time_sent[slot_affected] + 10000L;
+                    if (do_timeout_estimation)
+                        timeout_time = (timeout_time * 0.9) + ((getCurrentTimeInMicroseconds() - window_time_sent[slot_affected]) * 0.1);
 
                     // packet arrived! so do congestion control
                     if (is_slow_start == 1) { 
@@ -314,7 +314,7 @@ int main(int argc, char *argv[]) {
                         }
                     } else {
                         // congestion avoidance
-                        if (ack_count[slot_affected] >= concurrent && concurrent < concurrent_max) {
+                        if (concurrent < concurrent_max) {
                             concurrent++;
                         }
                     }
