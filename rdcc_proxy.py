@@ -99,6 +99,7 @@ def forward_packets(listen_port, forward_port, test_type):
                 data, addr = s.recvfrom(4096)
                 if len(data) > 1200:
                     # drop oversized packets
+                    print(f'Packet dropped on port {listen_port} (oversized)')
                     continue
                 if tunnel.forward_success():
                     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as forward_socket:

@@ -118,7 +118,14 @@ int main() {
         while (window_state[0] == 1) {
             // write the data to the file, move all the data to the left (in window_state, window_timout, and ), append a 0, and increment first_seq.
 
-            if(do_print) printf("Writing packet %d to file, and sliding window.\n", first_seq);
+            char* payload = packet_buffer[0]->payload;
+            int payload_length = packet_buffer[0]->length;
+            char *payload_first_10 = malloc(11);
+            memcpy(payload_first_10, payload, 10);
+            payload_first_10[10] = '\0';
+
+
+            if(do_print) printf("Writing packet %d to file, and sliding window. (len = %d, first 10 characters are %s)\n", first_seq, payload_length, payload_first_10);
 
             write_packet_to_file(packet_buffer[0], fp);
 
@@ -152,35 +159,43 @@ int main() {
 
             if(do_print) printf("Recieved Packet.\nSending ACK=%d\n", ack_n);
 
-            // send ack packet
-            create_ack(&buffer, ack_n);
-            sendto(send_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr_to, sizeof(client_addr_to));
-
-            if (slot_affected >= 0 && slot_affected < WINDOW_SIZE && window_state[slot_affected] == 0) {
-                // deep copy packet into window_buffer slot, and set window_state to 1
-                struct packet* new_packet = malloc(sizeof(struct packet));
-                memcpy(new_packet, &recieved_packet, sizeof(struct packet));
-                packet_buffer[slot_affected] = new_packet;
-                window_state[slot_affected] = 1;
-            }
-
-            // get first_not_recieved, the index of the first slot in the window that is not recieved
-            int first_not_recieved = -1;
-            for (int i = 0; i < WINDOW_SIZE; i++) {
-                if (window_state[i] == 0) {
-                    first_not_recieved = i;
-                    break;
-                }
-            }
-
-            if (first_not_recieved >= 0 && first_not_recieved < slot_affected) {
-                // send ack packet for the spot before it, that way client knows to send first_not_recieved again
-                if(do_print) printf("Also Sending ACK=%d For our missing packet\n", first_seq + first_not_recieved);
-                create_ack(&buffer, first_seq + first_not_recieved);
+            if(recieved_packet.length <= 0 && recieved_packet.last == 0) {
+                if(do_print) printf("This is a probe packet, so we reply and ignore the rest.\n\n\n");
+                // we set ack = 0 to indicate that this is a probe response packet (not an ack)
+                build_packet(&buffer, 0, ack_n, 0, 0, 0, "");
                 sendto(send_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr_to, sizeof(client_addr_to));
-            }
+            }else{
+                // send ack packet
+                create_ack(&buffer, ack_n);
+                sendto(send_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr_to, sizeof(client_addr_to));
 
-            if(do_print) printf("\n\n");
+                if (slot_affected >= 0 && slot_affected < WINDOW_SIZE && window_state[slot_affected] == 0) {
+                    // deep copy packet into window_buffer slot, and set window_state to 1
+                    struct packet* new_packet = malloc(sizeof(struct packet));
+                    memcpy(new_packet, &recieved_packet, sizeof(struct packet));
+                    packet_buffer[slot_affected] = new_packet;
+                    window_state[slot_affected] = 1;
+                }
+
+                // get first_not_recieved, the index of the first slot in the window that is not recieved
+                int first_not_recieved = -1;
+                for (int i = 0; i < WINDOW_SIZE; i++) {
+                    if (window_state[i] == 0) {
+                        first_not_recieved = i;
+                        break;
+                    }
+                }
+
+                if (first_not_recieved >= 0 && first_not_recieved < slot_affected) {
+                    // send ack packet for the spot before it, that way client knows to send first_not_recieved again
+                    if(do_print) printf("Also Sending ACK=%d For our missing packet\n", first_seq + first_not_recieved);
+                    create_ack(&buffer, first_seq + first_not_recieved);
+                    sendto(send_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr_to, sizeof(client_addr_to));
+                }
+
+                if(do_print) printf("\n\n");
+            }
+           
 
             // print_window_state(window_state, first_seq, do_print);
 
