@@ -20,7 +20,7 @@ unsigned long getCurrentTimeInMicroseconds() {
 // return 0 if the packet is the last packet, 1 otherwise
 int create_packet(struct packet* pkt, int seq_n, char file_segments[][PAYLOAD_SIZE], long max_sequence, long file_size) {
     if(seq_n < 0){
-        build_packet(pkt, 0, 0, 0, 0, 0, "");
+        build_packet(pkt, 0, 0, 0, 0, 0, ""); // bit weird, but this is a probe packet
         return 1;
     }
 
@@ -157,6 +157,7 @@ int main(int argc, char *argv[]) {
     int ack_count[WINDOW_SIZE]; // number of times we have recieved an ack for this packet, used for congestion control
     unsigned long window_time_sent[WINDOW_SIZE]; // tracks the time the packet was sent, used for timeout detection
 
+    // initialize window_state, ack_count, and window_time_sent
     for (int i = 0; i < WINDOW_SIZE; i++) {
         window_state[i] = 0;
         ack_count[i] = 0;
@@ -171,9 +172,9 @@ int main(int argc, char *argv[]) {
 
     unsigned long time_of_last_timeout = 0L;
 
-    // probe timeout with a packet seq_n = -1
+    // ----- PROBE PACKET -----
 
-    unsigned long probe_timeout_time = 1000000L; // 1 second
+    unsigned long probe_timeout_time = 1000000L; // resend probe after 1 second
     unsigned long time_sent_probe = getCurrentTimeInMicroseconds() - probe_timeout_time;
 
     int recv_len = 0;
@@ -181,43 +182,39 @@ int main(int argc, char *argv[]) {
     do{
 
         time = getCurrentTimeInMicroseconds();
+
+        // send probe packet if it's time
         if (time > time_sent_probe + probe_timeout_time){
-            // send probe packet
             if(do_print) printf("Sending probe packet\n");
             struct packet pkt;
             create_packet(&pkt, -1, file_segments, max_sequence, file_size);
             sendto(send_sockfd, &pkt, sizeof(pkt), 0, (struct sockaddr *)&server_addr_to, sizeof(server_addr_to));
             time_sent_probe = getCurrentTimeInMicroseconds();
         }
-
+        
+        // check if we recieve a packet
         recv_len = recvfrom(listen_sockfd, &recieved_packet, sizeof(recieved_packet), MSG_DONTWAIT, (struct sockaddr *)&server_addr_from, &addr_size);
-
     } while (recv_len <= 0);
 
-    // calculate timeout_time
+    // calculate timeout_time = 1.5 * RTT
     unsigned long timeout_time = (getCurrentTimeInMicroseconds() - time_sent_probe) * 1.5;
 
     if(do_print) printf("Timeout time is %ld\n", timeout_time);
 
 
-
-    // long time_to_stop = getCurrentTimeInMicroseconds() + 1000000L * (long) (0.15086 * (double) max_sequence + 8.8832);
+    // ----- MAIN LOOP -----
 
 
     if(do_print) printf("-------------------- CLIENT -------------------\n");
 
     if(do_print) printf("Initial timeout_time: %ld\nInitial concurrent=%d\nFile is %ld bytes long, and will be sent into %ld packets total\n\n\n", timeout_time, concurrent, file_size, max_sequence);
 
+    // first_seq == max_sequence means the last packet has been acked
     while (first_seq < max_sequence) {
 
         time = getCurrentTimeInMicroseconds();
-
-        // if (time > time_to_stop) {
-        //     if(do_print) printf("We have been sending for too long, so we are done\n\n\n\n\n\n");
-        //     break;
-        // }
         
-        // move window as long as first packet is acked (this is O(n^2) but window is so small and c is so fast that it doesn't matter)
+        // slide window as long as first packet is acked
         while (window_state[0] == 2) {
 
            if(do_print) printf("First Slot is ACKED, sliding window\n");
@@ -228,9 +225,11 @@ int main(int argc, char *argv[]) {
                 window_time_sent[i] = window_time_sent[i + 1];
                 ack_count[i] = ack_count[i + 1];
             }
+            // set last slot to not-sent
             window_state[WINDOW_SIZE - 1] = 0;
             window_time_sent[WINDOW_SIZE - 1] = 0L;
             ack_count[WINDOW_SIZE - 1] = 0;
+
             first_seq++;
 
             if(do_print) printf("\n\n");
@@ -240,13 +239,15 @@ int main(int argc, char *argv[]) {
         for (int i = 0; i < WINDOW_SIZE; i++) {
             if (window_state[i] == 1 && time > window_time_sent[i] + timeout_time && time > time_of_last_timeout + timeout_time){
                 window_state[i] = 0;
-                // since we timed out, increase timeout_time
+
+                // Timout estimation
                 if (do_timeout_estimation){
                     timeout_time *= 1.01;
                     if (timeout_time > 500000L)
                         timeout_time = 500000L;
                 }
                 
+                // Congestion control (Timeout)
                 slow_start_threshold = concurrent * 0.5;
                 if (slow_start_threshold < 1)
                     slow_start_threshold = 1;
@@ -265,24 +266,25 @@ int main(int argc, char *argv[]) {
                 in_progress_count++;
         }
 
-        // Send at most concurrent-in_progress_count of the not-sent packets in the window
+        // Send as many packets as possible ( <= concurrent )
         for (int i = 0; i < WINDOW_SIZE && in_progress_count < concurrent; i++) {
             if (window_state[i] == 0 && first_seq + i < max_sequence) {
+
                 // create packet
                 struct packet pkt;
                 create_packet(&pkt, first_seq + i, file_segments, max_sequence, file_size);
+
                 // send packet
                 sendto(send_sockfd, &pkt, sizeof(pkt), 0, (struct sockaddr *)&server_addr_to, sizeof(server_addr_to));
+
                 // update window state
                 window_state[i] = 1;
                 window_time_sent[i] = time;
+
                 // update in_progress_count
                 in_progress_count++;
 
                 if(do_print) printf("Sending packet %d - sending availability is now = %d/%d\n\n\n", first_seq + i, in_progress_count, concurrent);
-
-                // print_window_state(window_state, first_seq, do_print);
-
             }
         }
 
@@ -300,10 +302,11 @@ int main(int argc, char *argv[]) {
                 if (slot_affected >= 0 && slot_affected < WINDOW_SIZE && window_state[slot_affected] == 1) {
                     window_state[slot_affected] = 2;
 
+                    // Timeout estimation
                     if (do_timeout_estimation)
                         timeout_time = (timeout_time * 0.9) + ((getCurrentTimeInMicroseconds() - window_time_sent[slot_affected]) * 0.1);
 
-                    // packet arrived! so do congestion control
+                    // Congestion control (ACKed packet)
                     if (is_slow_start == 1) { 
                         concurrent *= 2;
                         if (concurrent >= slow_start_threshold) {
@@ -317,7 +320,6 @@ int main(int argc, char *argv[]) {
                         }
                     }
 
-
                     if(do_print) printf("Recieved ACK %d, packet arrived. timeout=%ld, concurrent=%d, slow_start_threshold=%d\n", recieved_packet.acknum, timeout_time, concurrent, slow_start_threshold);
                     if(do_print) printf("RTT for this packet was %ld ms\n", time - window_time_sent[slot_affected]);
                 } else {
@@ -325,13 +327,14 @@ int main(int argc, char *argv[]) {
                 }
 
                 if (ack_count[slot_affected] >= ack_dupe_limit) {
-                    // packet lost! so do congestion control
-
+                    
                     ack_count[slot_affected] = 0;
-                    // set slot_affected+1 to not-sent
+                
+                    // set packet to not-sent
                     if (slot_affected + 1 < WINDOW_SIZE)
                         window_state[slot_affected + 1] = 0;
                     
+                    // Congestion control (Duplicate ACK)
                     slow_start_threshold = concurrent * 0.5;
                     if (slow_start_threshold < 1)
                         slow_start_threshold = 1;
@@ -342,19 +345,15 @@ int main(int argc, char *argv[]) {
 
                 if(do_print) printf("\n\n");
             }
-            // print_window_state(window_state, first_seq, do_print);
         }
 
         // check if we have recieved the last ack, and last packet is in first slot of window
         if (first_seq >= max_sequence) {
             if(do_print) printf("All packets have been sent and ACKED, so we are done\n\n\n\n\n\n");
-            // print_window_state(window_state, first_seq, do_print);
             break;
         }
         
     }
-
-    // printf("Done with client");
  
     
     fclose(fp);
