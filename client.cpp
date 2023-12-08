@@ -237,7 +237,7 @@ int main(int argc, char *argv[]) {
 
         // set all timed out packets to not-sent
         for (int i = 0; i < WINDOW_SIZE; i++) {
-            if (window_state[i] == 1 && time > window_time_sent[i] + timeout_time && time > time_of_last_timeout + timeout_time){
+            if (window_state[i] == 1 && time > window_time_sent[i] + timeout_time){
                 window_state[i] = 0;
 
                 // Timout estimation
@@ -247,15 +247,24 @@ int main(int argc, char *argv[]) {
                         timeout_time = 500000L;
                 }
                 
-                // Congestion control (Timeout)
-                slow_start_threshold = concurrent * 0.5;
-                if (slow_start_threshold < 1)
-                    slow_start_threshold = 1;
-                concurrent = slow_start_threshold;
+                if (time > time_of_last_timeout + timeout_time)
+                {
+                    // Congestion Control (Timeout)
+                    slow_start_threshold = concurrent * 0.5;
+                    if (slow_start_threshold < 1)
+                        slow_start_threshold = 1;
+                    concurrent = slow_start_threshold;
 
-                time_of_last_timeout = time;
+                    time_of_last_timeout = time;
+
+                    if(do_print) printf("Packet %d timed out. It took %ld ms, timeout=%ld, concurrent=%d, slow_start_threshold=%d\n\n\n", first_seq + i, time - window_time_sent[i], timeout_time, concurrent, slow_start_threshold);
+
+                } else {
+                    
+                    // here we are in the case where we have timed out, but we have already timed out recently
+                    if(do_print) printf("Packet %d timed out. But already timed out recently, so ignoring. \n\n\n", first_seq + i);
+                }
                 
-                if(do_print) printf("Packet %d timed out. It took %ld ms, timeout=%ld, concurrent=%d, slow_start_threshold=%d\n\n\n", first_seq + i, time - window_time_sent[i], timeout_time, concurrent, slow_start_threshold);
             }
         }
 
@@ -306,7 +315,7 @@ int main(int argc, char *argv[]) {
                     if (do_timeout_estimation)
                         timeout_time = (timeout_time * 0.9) + ((getCurrentTimeInMicroseconds() - window_time_sent[slot_affected]) * 0.1);
 
-                    // Congestion control (ACKed packet)
+                    // Congestion Control (ACKed packet)
                     if (is_slow_start == 1) { 
                         concurrent *= 2;
                         if (concurrent >= slow_start_threshold) {
@@ -334,7 +343,7 @@ int main(int argc, char *argv[]) {
                     if (slot_affected + 1 < WINDOW_SIZE)
                         window_state[slot_affected + 1] = 0;
                     
-                    // Congestion control (Duplicate ACK)
+                    // Congestion Control (Duplicate ACK)
                     slow_start_threshold = concurrent * 0.5;
                     if (slow_start_threshold < 1)
                         slow_start_threshold = 1;
