@@ -349,8 +349,21 @@ int main(int argc, char *argv[]) {
                         slow_start_threshold = 1;
                     concurrent = slow_start_threshold;
 
+                    // Increase concurrent by 3 for fast retransmit
+                    concurrent += 3;
+
+                    // Ensure concurrent does not exceed max window size
+                    if (concurrent > concurrent_max) concurrent = concurrent_max;
+
                     if(do_print) printf("Duplicate ACK on packet %d. concurrent=%d, slow_start_threshold=%d\n", first_seq + slot_affected, concurrent, slow_start_threshold);
                 }
+
+                // // Adjust concurrent and slow_start_threshold on non-duplicate ACK in fast recovery
+                // if (is_fast_recovery) { // Assuming you have a flag to indicate fast recovery mode
+                //     concurrent = WINDOW_SIZE / 2;
+                //     slow_start_threshold = concurrent;
+                //     is_fast_recovery = false; // Exit fast recovery mode
+                // }
 
                 if(do_print) printf("\n\n");
             }
