@@ -7,15 +7,6 @@
 
 #include "utils.h"
 
-// long getCurrentTimeInMicroseconds() {
-//     struct timeval currentTime;
-//     gettimeofday(&currentTime, NULL);
-
-//     // Convert seconds to microseconds and add microseconds
-//     long microseconds = currentTime.tv_sec * 1000000L + currentTime.tv_usec;
-//     return microseconds;
-// }
-
 void print_window_state(short window_state[WINDOW_SIZE], int first_seq, short do_print) {
     if(!do_print)
         return;
@@ -40,7 +31,7 @@ int write_packet_to_file(struct packet* pkt, FILE* fp) {
 
 int main() {
     // VARIABLE TO TOGGLE PRINTING AND TIMEOUT STRATEGY ---------------------------
-    short do_print = 0;
+    short do_print = 1;
 
     int listen_sockfd, send_sockfd;
     struct sockaddr_in server_addr, client_addr_from, client_addr_to;
@@ -118,12 +109,10 @@ int main() {
         while (window_state[0] == 1) {
             // write the data to the file, move all the data to the left (in window_state, window_timout, and ), append a 0, and increment first_seq.
 
-            char* payload = packet_buffer[0]->payload;
             int payload_length = packet_buffer[0]->length;
-            char *payload_first_10 = malloc(11);
-            memcpy(payload_first_10, payload, 10);
+            char payload_first_10[11];
+            memcpy(payload_first_10, packet_buffer[0]->payload, 10);
             payload_first_10[10] = '\0';
-
 
             if(do_print) printf("Writing packet %d to file, and sliding window. (len = %d, first 10 characters are %s)\n", first_seq, payload_length, payload_first_10);
 
@@ -171,7 +160,7 @@ int main() {
 
                 if (slot_affected >= 0 && slot_affected < WINDOW_SIZE && window_state[slot_affected] == 0) {
                     // deep copy packet into window_buffer slot, and set window_state to 1
-                    struct packet* new_packet = malloc(sizeof(struct packet));
+                    struct packet* new_packet = (struct packet*)malloc(sizeof(struct packet));
                     memcpy(new_packet, &recieved_packet, sizeof(struct packet));
                     packet_buffer[slot_affected] = new_packet;
                     window_state[slot_affected] = 1;

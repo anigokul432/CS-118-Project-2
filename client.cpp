@@ -53,7 +53,7 @@ long ceiled_div(long a, long b) {
 int main(int argc, char *argv[]) {
     
     // VARIABLE TO TOGGLE PRINTING AND TIMEOUT STRATEGY ---------------------------
-    short do_print = 0;
+    short do_print = 1;
     short do_timeout_estimation = 0;
 
     int listen_sockfd, send_sockfd;
@@ -83,17 +83,20 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+
     // Configure the server address structure to which we will send data
     memset(&server_addr_to, 0, sizeof(server_addr_to));
     server_addr_to.sin_family = AF_INET;
     server_addr_to.sin_port = htons(SERVER_PORT_TO);
     server_addr_to.sin_addr.s_addr = inet_addr(SERVER_IP);
 
+
     // Configure the client address structure
     memset(&client_addr, 0, sizeof(client_addr));
     client_addr.sin_family = AF_INET;
     client_addr.sin_port = htons(CLIENT_PORT);
     client_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+
 
     // Bind the listen socket to the client address
     if (bind(listen_sockfd, (struct sockaddr *)&client_addr, sizeof(client_addr)) < 0) {
@@ -113,53 +116,46 @@ int main(int argc, char *argv[]) {
     }
 
 
-
     // caclulate max_sequence, = ceil(file_size / PAYLOAD_SIZE)
     fseek(fp, 0L, SEEK_END);
     long file_size = ftell(fp);
     fseek(fp, 0L, SEEK_SET);
     long max_sequence = ceiled_div(file_size, PAYLOAD_SIZE);
 
+
     // store file segments in an array for easy access
     char file_segments[max_sequence][PAYLOAD_SIZE];
-
 
 
     // read file into file_segments
     for (int i = 0; i < max_sequence; i++) {
         if(i == max_sequence - 1) {
-            // last segment
+
             int length_of_last_segment = file_size % PAYLOAD_SIZE;
             if (length_of_last_segment == 0)
                 length_of_last_segment = PAYLOAD_SIZE;
+
+            // Last Segment's size is the remainder of file_size / PAYLOAD_SIZE
             fread(file_segments[i], sizeof(char), length_of_last_segment, fp);
-            // file_segments[i][file_size % (PAYLOAD_SIZE-1)] = '\0';
         } else {
+
+            // Any Segment that is not the last segment is of size PAYLOAD_SIZE
             fread(file_segments[i], sizeof(char), PAYLOAD_SIZE, fp);
-            // file_segments[i][PAYLOAD_SIZE-1] = '\0';
         }
     }
 
 
-    // if(do_print) printf("first segment: %s\n", file_segments[0]);
-    // if(do_print) printf("last segment: %s\n", file_segments[max_sequence - 1]);
-
-    // if(do_print) printf("length of last segment: %ld\n, expected %;d", length_of_last_segment, );
-
-    // TODO: Read from file, and initiate reliable data transfer to the server
-     // all time in is microseconds
-    int concurrent = 1;  // number of packets we can send at once, normally cwnd would vary but this is equivalent, since window size is large
+    // all time in is microseconds = 10^-6 seconds
+    int concurrent = 1; // number of packets we can send at once, normally cwnd would vary but this is equivalent, since window size is large
     short is_slow_start = 1;
     int slow_start_threshold = 8;
-    int concurrent_max = WINDOW_SIZE;
+    int concurrent_max = WINDOW_SIZE; // the absolute maximum number of packets we can send at once
     int ack_dupe_limit = 3;
 
 
-    // unsigned long timeout_time = 700000L; // 200ms
-
     short window_state[WINDOW_SIZE];  // 0 = not-sent, 1 = sent, 2 = acked
     int ack_count[WINDOW_SIZE]; // number of times we have recieved an ack for this packet, used for congestion control
-    unsigned long window_time_sent[WINDOW_SIZE];
+    unsigned long window_time_sent[WINDOW_SIZE]; // tracks the time the packet was sent, used for timeout detection
 
     for (int i = 0; i < WINDOW_SIZE; i++) {
         window_state[i] = 0;
@@ -167,12 +163,13 @@ int main(int argc, char *argv[]) {
         window_time_sent[i] = 0L;
     }
 
-
     unsigned int first_seq = 0;
 
     int in_progress_count;
     unsigned long time = getCurrentTimeInMicroseconds();
     struct packet recieved_packet;
+
+    unsigned long time_of_last_timeout = 0L;
 
     // probe timeout with a packet seq_n = -1
 
@@ -241,7 +238,7 @@ int main(int argc, char *argv[]) {
 
         // set all timed out packets to not-sent
         for (int i = 0; i < WINDOW_SIZE; i++) {
-            if (window_state[i] == 1 && time > window_time_sent[i] + timeout_time){
+            if (window_state[i] == 1 && time > window_time_sent[i] + timeout_time && time > time_of_last_timeout + timeout_time){
                 window_state[i] = 0;
                 // since we timed out, increase timeout_time
                 if (do_timeout_estimation){
@@ -250,11 +247,12 @@ int main(int argc, char *argv[]) {
                         timeout_time = 500000L;
                 }
                 
-                slow_start_threshold = concurrent / 2;
+                slow_start_threshold = concurrent * 0.5;
                 if (slow_start_threshold < 1)
                     slow_start_threshold = 1;
-                concurrent = 1;
-                is_slow_start = 1;
+                concurrent = slow_start_threshold;
+
+                time_of_last_timeout = time;
                 
                 if(do_print) printf("Packet %d timed out. It took %ld ms, timeout=%ld, concurrent=%d, slow_start_threshold=%d\n\n\n", first_seq + i, time - window_time_sent[i], timeout_time, concurrent, slow_start_threshold);
             }
@@ -334,7 +332,7 @@ int main(int argc, char *argv[]) {
                     if (slot_affected + 1 < WINDOW_SIZE)
                         window_state[slot_affected + 1] = 0;
                     
-                    slow_start_threshold = concurrent / 2;
+                    slow_start_threshold = concurrent * 0.5;
                     if (slow_start_threshold < 1)
                         slow_start_threshold = 1;
                     concurrent = slow_start_threshold;
