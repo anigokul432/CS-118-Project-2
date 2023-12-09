@@ -4,7 +4,8 @@ No need to be verbose, brief descriptions/bullet points are preferred.
 We implemented a congestion control scheme that is similar to TCP Tahoe.
 
 We have a fixed window size, but we have a variable called `concurrent` 
-that represents the number of packets that can be sent at once.
+that represents the number of packets that can be sent at once. This
+is similar to cwnd in TCP.
 
 We also keep track of the number of acks for each segment in an array.
 

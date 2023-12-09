@@ -79,7 +79,7 @@ long ceiled_div(long a, long b) {
 int main(int argc, char *argv[]) {
     
     // VARIABLE TO TOGGLE PRINTING AND TIMEOUT STRATEGY ---------------------------
-    short do_print = 1;
+    short do_print = 0;
     short do_timeout_estimation = 0;
     short do_probe_timeout = 0;
 
