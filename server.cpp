@@ -136,23 +136,22 @@ int main() {
 
             int seq_n = recieved_packet.seqnum;
             int slot_affected = seq_n - first_seq;
-            int ack_n = seq_n + 1;
 
-            if(do_print) printf("Recieved Packet.\nSending ACK=%d\n", ack_n);
+            if(do_print) printf("Recieved Packet %d.\n", seq_n);
 
             if(recieved_packet.length <= 0 && recieved_packet.last == 0) {
 
-                // This is a bit cheasy, but the condition above mean this is a probe packet
+                // This is a bit weird, but the condition above mean this is a probe packet
                 if(do_print) printf("This is a probe packet, so we reply and ignore the rest.\n\n\n");
-                build_packet(&buffer, 0, ack_n, 0, 0, 0, "");
+                build_packet(&buffer, 0, 0, 0, 0, 0, "");
                 sendto(send_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr_to, sizeof(client_addr_to));
 
             }else{
                 // this is a normal packet
 
                 // send ack packet
-                create_ack(&buffer, ack_n);
-                sendto(send_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr_to, sizeof(client_addr_to));
+                // create_ack(&buffer, ack_n);
+                // sendto(send_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr_to, sizeof(client_addr_to));
 
                 // buffer packet if it is in the window
                 if (slot_affected >= 0 && slot_affected < WINDOW_SIZE && window_state[slot_affected] == 0) {
@@ -163,7 +162,7 @@ int main() {
                     window_state[slot_affected] = 1;
                 }
 
-                // get first_not_recieved, the index of the first slot in the window that is not recieved
+                // We want now to ask for the first packet we are missing
                 int first_not_recieved = -1;
                 for (int i = 0; i < WINDOW_SIZE; i++) {
                     if (window_state[i] == 0) {
@@ -173,7 +172,7 @@ int main() {
                 }
 
                 // send ack for first_not_recieved, to let client know we are missing it
-                if (first_not_recieved >= 0 && first_not_recieved < slot_affected) {
+                if (first_not_recieved >= 0) {
                     if(do_print) printf("Also Sending ACK=%d For our missing packet\n", first_seq + first_not_recieved);
                     create_ack(&buffer, first_seq + first_not_recieved);
                     sendto(send_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr_to, sizeof(client_addr_to));
