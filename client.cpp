@@ -201,7 +201,7 @@ int main(int argc, char *argv[]) {
 
     // ----- PROBE PACKET -----
 
-    unsigned long timeout_time = 2000000L; // 2 second
+    unsigned long timeout_time = 2000000L; // 1 second
 
     if(do_probe_timeout) {
         if(do_print) printf("Probing for timeout\n");
@@ -219,7 +219,6 @@ int main(int argc, char *argv[]) {
 
 
     // ----- MAIN LOOP -----
-
 
     if(do_print) printf("-------------------- CLIENT -------------------\n");
 
@@ -342,9 +341,22 @@ int main(int argc, char *argv[]) {
 
                 total_acks_recieved++;
 
-                // go through all the packets in the window that are before the acked packet, and set them to acked
-                for(int i = 0; i < first_slot_demanded; i++) {
-                    if (window_state[i] != 2) {
+
+                // we only will increment ack_count for the first packet that is missing
+                short found_missing_packet = 0;
+
+                // go through every packet in window
+                for (int i = 0; i < WINDOW_SIZE; i++) {
+
+                    int sack_index = i - first_slot_demanded;
+
+                    if ( sack_index >= WINDOW_SIZE){
+                        break;
+                    }
+
+
+                    // ACK packets that have been recieved by server
+                    if ( ( sack_index < 0 || sack_payload[sack_index] == '1' ) && window_state[i] != 2 ) {
 
                         window_state[i] = 2;
                         ack_count[i] = 0;
@@ -367,67 +379,24 @@ int main(int argc, char *argv[]) {
                             }
                         }
 
-                        if(do_print) printf("Recieved ACK %d, packet arrived. timeout=%ld, concurrent=%d, slow_start_threshold=%d\n", recieved_packet.acknum, timeout_time, concurrent, slow_start_threshold);
-                    }
-                }
-
-                short found_missing_packet = 0;
-
-                for(int i = 0; i < sack_length; i++) {
-
-                    int slot_demanded = first_slot_demanded + i;
-
-                    if ( slot_demanded >= WINDOW_SIZE){
-                        break;
                     }
 
-                    if (slot_demanded < 0){
-                        continue;
-                    }
 
-                    if(sack_payload[i] == '1'){
+                    // Handle Un-ACKed packets
+                    if ( sack_index >= 0 && sack_payload[sack_index] == '0') {
 
-                        found_missing_packet = 1;
-
-                        if (window_state[slot_demanded] != 2) {
-                            
-                            window_state[slot_demanded] = 2;
-                            ack_count[slot_demanded] = 0;
-
-                            // Timeout estimation
-                            if (do_timeout_estimation)
-                                timeout_time = (timeout_time * 0.9) + ((getCurrentTimeInMicroseconds() - window_time_sent[slot_demanded]) * 0.1);
-
-                            // Congestion Control (ACKed packet)
-                            if (is_slow_start == 1) { 
-                                concurrent *= 2;
-                                if (concurrent >= slow_start_threshold) {
-                                    is_slow_start = 0;
-                                    concurrent = slow_start_threshold;
-                                }
-                            } else {
-                                // congestion avoidance
-                                if (concurrent < concurrent_max) {
-                                    concurrent++;
-                                }
-                            }
-
-                            if(do_print) printf("Recieved ACK %d, packet arrived. timeout=%ld, concurrent=%d, slow_start_threshold=%d\n", recieved_packet.acknum, timeout_time, concurrent, slow_start_threshold);
-                        }
-                    } else {
-
-                        if (found_missing_packet == 0 && window_state[slot_demanded] != 0){
-                            ack_count[slot_demanded]++;
+                        if (found_missing_packet == 0 && window_state[i] != 0){
+                            ack_count[i]++;
                             found_missing_packet = 1;
                         }
 
-                        if (ack_count[slot_demanded] >= ack_dupe_limit) {
+                        if (ack_count[i] >= ack_dupe_limit) {
                         
-                            ack_count[slot_demanded] = 0;
+                            ack_count[i] = 0;
                             total_duplicate_acks++;
                         
                             // set packet to not-sent
-                            window_state[slot_demanded] = 0;
+                            window_state[i] = 0;
                             
                             // Congestion Control (Duplicate ACK)
                             slow_start_threshold = concurrent * 0.5;
@@ -439,11 +408,11 @@ int main(int argc, char *argv[]) {
                             // Ensure concurrent does not exceed max window size
                             if (concurrent > concurrent_max) concurrent = concurrent_max;
 
-                            if(do_print) printf("Duplicate ACK on packet %d. concurrent=%d, slow_start_threshold=%d\n", first_seq + slot_demanded, concurrent, slow_start_threshold);
+                            if(do_print) printf("Duplicate ACK on packet %d. concurrent=%d, slow_start_threshold=%d\n", first_seq + i, concurrent, slow_start_threshold);
                         }
 
                     }
-                    
+
                 }
 
                 if(do_print) printf("\n\n");

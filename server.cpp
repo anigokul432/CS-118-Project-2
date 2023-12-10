@@ -7,6 +7,15 @@
 
 #include "utils.h"
 
+unsigned long getCurrentTimeInMicroseconds() {
+    struct timeval currentTime;
+    gettimeofday(&currentTime, NULL);
+
+    // Convert seconds to microseconds and add microseconds
+    unsigned long microseconds = currentTime.tv_sec * 1000000L + currentTime.tv_usec;
+    return microseconds;
+}
+
 void print_window_state(short window_state[WINDOW_SIZE], int first_seq, short do_print) {
     if(!do_print)
         return;
@@ -27,6 +36,27 @@ int write_packet_to_file(struct packet* pkt, FILE* fp) {
     fwrite(pkt->payload, 1, pkt->length, fp);
     fflush(fp);
     return 0;
+}
+
+void send_sack_packet( int send_sockfd, struct sockaddr_in client_addr_to, short window_state[WINDOW_SIZE], int first_seq, short do_print, packet buffer) {
+    // We will do SACKS, we will send one ack and the payload will be bits 0 or 1 for each packet in the window after the first not recieved
+    int sack_payload_length = WINDOW_SIZE;
+    char sack_payload[sack_payload_length];
+
+    // send the state of every packet in the window
+    for (int i = 0; i < WINDOW_SIZE; i++) {
+        if( window_state[i] == 0) {
+            sack_payload[i] = '0';
+        }else{
+            sack_payload[i] = '1';
+        }
+    }
+
+    if(do_print) printf("Sending ACK %d with SACK payload of length %d\n", first_seq, sack_payload_length);
+    create_ack(&buffer, first_seq, sack_payload, sack_payload_length);
+    sendto(send_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr_to, sizeof(client_addr_to));
+
+    if(do_print) printf("\n\n");
 }
 
 int main() {
@@ -94,10 +124,17 @@ int main() {
 
     int wrote_last = 0;
 
+    unsigned long time = getCurrentTimeInMicroseconds();
+    unsigned long last_time_ack_sent = time;
+    unsigned long resend_ack_time = 1500000;
+
+
     if(do_print) printf("-------------------- SERVER -------------------\n\n\n");
 
 
     while (1) {
+
+        time = getCurrentTimeInMicroseconds();
         
         // on a loop, if first slot in the window is recieved (1):
         while (window_state[0] == 1) {
@@ -132,11 +169,11 @@ int main() {
         }
 
         // check if we recieve a packet
-        if (recvfrom(listen_sockfd, &recieved_packet, sizeof(recieved_packet), 0, (struct sockaddr *)&client_addr_from, &addr_size) > 0 && recieved_packet.seqnum < WINDOW_SIZE + first_seq) {
+        int recv = recvfrom(listen_sockfd, &recieved_packet, sizeof(recieved_packet), 0, (struct sockaddr *)&client_addr_from, &addr_size);
+        if (recv > 0 && recieved_packet.seqnum < WINDOW_SIZE + first_seq) {
 
             int seq_n = recieved_packet.seqnum;
             int slot_affected = seq_n - first_seq;
-
             if(do_print) printf("Recieved Packet %d.\n", seq_n);
 
             if(recieved_packet.length <= 0 && recieved_packet.last == 0) {
@@ -158,23 +195,18 @@ int main() {
                     window_state[slot_affected] = 1;
                 }
 
-                // We will do SACKS, we will send one ack and the payload will be bits 0 or 1 for each packet in the window after the first not recieved
-                int sack_payload_length = WINDOW_SIZE;
-                char sack_payload[sack_payload_length];
+                // send ack for packet if it is in the window
+                send_sack_packet(send_sockfd, client_addr_to, window_state, first_seq, do_print, buffer);
 
-                for (int i = 0; i < WINDOW_SIZE; i++) {
-                    if( window_state[i] == 0) {
-                        sack_payload[i] = '0';
-                    }else{
-                        sack_payload[i] = '1';
+                if ( time - last_time_ack_sent > resend_ack_time) {
+                    // it's been a while since we sent an ack, so send 8 extra acks (to make sure the client gets it)
+                    for (int i = 0; i < 8; i++) {
+                        send_sack_packet(send_sockfd, client_addr_to, window_state, first_seq, do_print, buffer);
                     }
+                    last_time_ack_sent = time;
                 }
-
-                if(do_print) printf("Sending ACK %d with SACK payload of length %d\n", first_seq, sack_payload_length);
-                create_ack(&buffer, first_seq, sack_payload, sack_payload_length);
-                sendto(send_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr_to, sizeof(client_addr_to));
-
-                if(do_print) printf("\n\n");
+                
+                last_time_ack_sent = time;
             }
 
         }
