@@ -201,13 +201,21 @@ int main(int argc, char *argv[]) {
 
     // ----- PROBE PACKET -----
 
-    unsigned long timeout_time = 1000000L; // 1 second
+    unsigned long timeout_time = 2000000L; // 2 second
 
     if(do_probe_timeout) {
         if(do_print) printf("Probing for timeout\n");
         timeout_time = probe_timeout(listen_sockfd, send_sockfd, recieved_packet, server_addr_to, server_addr_from, addr_size, do_print);
         if(do_print) printf("Timeout time is %ld\n", timeout_time);
     }
+
+
+    // STATISTICS
+    unsigned long start_time = getCurrentTimeInMicroseconds();
+    unsigned long total_acks_recieved = 0L;
+    unsigned long total_packets_sent = 0L;
+    unsigned long total_timeouts = 0L;
+    unsigned long total_duplicate_acks = 0L;
 
 
     // ----- MAIN LOOP -----
@@ -247,6 +255,7 @@ int main(int argc, char *argv[]) {
         for (int i = 0; i < WINDOW_SIZE; i++) {
             if (window_state[i] == 1 && time > window_time_sent[i] + timeout_time){
                 window_state[i] = 0;
+                total_timeouts++;
 
                 // Timout estimation
                 if (do_timeout_estimation){
@@ -290,6 +299,7 @@ int main(int argc, char *argv[]) {
                 // create packet
                 struct packet pkt;
                 create_packet(&pkt, first_seq + i, file_segments, max_sequence, file_size);
+                total_packets_sent++;
 
                 // send packet
                 sendto(send_sockfd, &pkt, sizeof(pkt), 0, (struct sockaddr *)&server_addr_to, sizeof(server_addr_to));
@@ -308,17 +318,32 @@ int main(int argc, char *argv[]) {
         // check if we recieve a packet
         int recv_len = recvfrom(listen_sockfd, &recieved_packet, sizeof(recieved_packet), MSG_DONTWAIT, (struct sockaddr *)&server_addr_from, &addr_size);
         if (recv_len > 0) {
+
+            if(recieved_packet.ack && recieved_packet.last == 1) {
+                if(do_print) printf("Recieved last packet\n");
+                break;
+            }
             
             // make sure it's an ack packet (otherwise ignore packet)
             if (recieved_packet.ack) {
                 unsigned short ack_n = recieved_packet.acknum;
-                int slot_demanded = ack_n - first_seq;
+                int first_slot_demanded = ack_n - first_seq;
+                int sack_length = recieved_packet.length;
+                char* sack_payload = recieved_packet.payload;
 
-                ack_count[slot_demanded]++;
+                if(do_print) printf("Recieved ACK %d, sack_length=%d, sack_string=", recieved_packet.acknum, sack_length);
+
+                if(do_print){
+                    for(int i = 0; i < sack_length; i++) {
+                        printf("%c", sack_payload[i]);
+                    }
+                    printf("\n");
+                }
+
+                total_acks_recieved++;
 
                 // go through all the packets in the window that are before the acked packet, and set them to acked
-                for(int i = 0; i < slot_demanded; i++) {
-                    
+                for(int i = 0; i < first_slot_demanded; i++) {
                     if (window_state[i] != 2) {
 
                         window_state[i] = 2;
@@ -342,30 +367,83 @@ int main(int argc, char *argv[]) {
                             }
                         }
 
-                         if(do_print) printf("Recieved ACK %d, packet arrived. timeout=%ld, concurrent=%d, slow_start_threshold=%d\n", recieved_packet.acknum, timeout_time, concurrent, slow_start_threshold);
-
+                        if(do_print) printf("Recieved ACK %d, packet arrived. timeout=%ld, concurrent=%d, slow_start_threshold=%d\n", recieved_packet.acknum, timeout_time, concurrent, slow_start_threshold);
                     }
-                
                 }
 
-                if (slot_demanded >= 0 && slot_demanded < WINDOW_SIZE && ack_count[slot_demanded] >= ack_dupe_limit) {
+                short found_missing_packet = 0;
+
+                for(int i = 0; i < sack_length; i++) {
+
+                    int slot_demanded = first_slot_demanded + i;
+
+                    if ( slot_demanded >= WINDOW_SIZE){
+                        break;
+                    }
+
+                    if (slot_demanded < 0){
+                        continue;
+                    }
+
+                    if(sack_payload[i] == '1'){
+
+                        found_missing_packet = 1;
+
+                        if (window_state[slot_demanded] != 2) {
+                            
+                            window_state[slot_demanded] = 2;
+                            ack_count[slot_demanded] = 0;
+
+                            // Timeout estimation
+                            if (do_timeout_estimation)
+                                timeout_time = (timeout_time * 0.9) + ((getCurrentTimeInMicroseconds() - window_time_sent[slot_demanded]) * 0.1);
+
+                            // Congestion Control (ACKed packet)
+                            if (is_slow_start == 1) { 
+                                concurrent *= 2;
+                                if (concurrent >= slow_start_threshold) {
+                                    is_slow_start = 0;
+                                    concurrent = slow_start_threshold;
+                                }
+                            } else {
+                                // congestion avoidance
+                                if (concurrent < concurrent_max) {
+                                    concurrent++;
+                                }
+                            }
+
+                            if(do_print) printf("Recieved ACK %d, packet arrived. timeout=%ld, concurrent=%d, slow_start_threshold=%d\n", recieved_packet.acknum, timeout_time, concurrent, slow_start_threshold);
+                        }
+                    } else {
+
+                        if (found_missing_packet == 0 && window_state[slot_demanded] != 0){
+                            ack_count[slot_demanded]++;
+                            found_missing_packet = 1;
+                        }
+
+                        if (ack_count[slot_demanded] >= ack_dupe_limit) {
+                        
+                            ack_count[slot_demanded] = 0;
+                            total_duplicate_acks++;
+                        
+                            // set packet to not-sent
+                            window_state[slot_demanded] = 0;
+                            
+                            // Congestion Control (Duplicate ACK)
+                            slow_start_threshold = concurrent * 0.5;
+                            if (slow_start_threshold < 1)
+                                slow_start_threshold = 1;
+
+                            concurrent = slow_start_threshold + 2;
+
+                            // Ensure concurrent does not exceed max window size
+                            if (concurrent > concurrent_max) concurrent = concurrent_max;
+
+                            if(do_print) printf("Duplicate ACK on packet %d. concurrent=%d, slow_start_threshold=%d\n", first_seq + slot_demanded, concurrent, slow_start_threshold);
+                        }
+
+                    }
                     
-                    ack_count[slot_demanded] = 0;
-                
-                    // set packet to not-sent
-                    window_state[slot_demanded] = 0;
-                    
-                    // Congestion Control (Duplicate ACK)
-                    slow_start_threshold = concurrent * 0.5;
-                    if (slow_start_threshold < 1)
-                        slow_start_threshold = 1;
-
-                    concurrent = slow_start_threshold + 2;
-
-                    // Ensure concurrent does not exceed max window size
-                    if (concurrent > concurrent_max) concurrent = concurrent_max;
-
-                    if(do_print) printf("Duplicate ACK on packet %d. concurrent=%d, slow_start_threshold=%d\n", first_seq + slot_demanded, concurrent, slow_start_threshold);
                 }
 
                 if(do_print) printf("\n\n");
@@ -378,6 +456,17 @@ int main(int argc, char *argv[]) {
             break;
         }
         
+    }
+
+    // STATISTICS
+    double total_time_in_seconds = (getCurrentTimeInMicroseconds() - start_time) / 1000000.0;
+    if(do_print){
+        printf("Total time: %f seconds\n", total_time_in_seconds);
+        printf("Total packets sent: %ld\n", total_packets_sent);
+        printf("Total acks recieved: %ld\n", total_acks_recieved);
+        printf("Total timeouts: %ld\n", total_timeouts);
+        printf("Total duplicate acks: %ld\n", total_duplicate_acks);
+        printf("Throughput: %f bytes/second\n", file_size / total_time_in_seconds);
     }
  
     

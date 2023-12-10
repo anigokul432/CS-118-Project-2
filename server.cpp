@@ -18,8 +18,8 @@ void print_window_state(short window_state[WINDOW_SIZE], int first_seq, short do
 }
 
 // function to create a packet with ack_n, no payload, no seq_n, no last, ack = 1
-int create_ack(struct packet* pkt, unsigned short ack_n) {
-    build_packet(pkt, 0, ack_n, 0, 1, 0, "");
+int create_ack(struct packet* pkt, unsigned short ack_n, char *sack_payload, unsigned int sack_payload_length) {
+    build_packet(pkt, 0, ack_n, 0, 1, sack_payload_length, sack_payload);
     return 0;
 }
 
@@ -149,10 +149,6 @@ int main() {
             }else{
                 // this is a normal packet
 
-                // send ack packet
-                // create_ack(&buffer, ack_n);
-                // sendto(send_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr_to, sizeof(client_addr_to));
-
                 // buffer packet if it is in the window
                 if (slot_affected >= 0 && slot_affected < WINDOW_SIZE && window_state[slot_affected] == 0) {
                     // deep copy packet into window_buffer slot, and set window_state to 1
@@ -162,21 +158,21 @@ int main() {
                     window_state[slot_affected] = 1;
                 }
 
-                // We want now to ask for the first packet we are missing
-                int first_not_recieved = -1;
+                // We will do SACKS, we will send one ack and the payload will be bits 0 or 1 for each packet in the window after the first not recieved
+                int sack_payload_length = WINDOW_SIZE;
+                char sack_payload[sack_payload_length];
+
                 for (int i = 0; i < WINDOW_SIZE; i++) {
-                    if (window_state[i] == 0) {
-                        first_not_recieved = i;
-                        break;
+                    if( window_state[i] == 0) {
+                        sack_payload[i] = '0';
+                    }else{
+                        sack_payload[i] = '1';
                     }
                 }
 
-                // send ack for first_not_recieved, to let client know we are missing it
-                if (first_not_recieved >= 0) {
-                    if(do_print) printf("Also Sending ACK=%d For our missing packet\n", first_seq + first_not_recieved);
-                    create_ack(&buffer, first_seq + first_not_recieved);
-                    sendto(send_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr_to, sizeof(client_addr_to));
-                }
+                if(do_print) printf("Sending ACK %d with SACK payload of length %d\n", first_seq, sack_payload_length);
+                create_ack(&buffer, first_seq, sack_payload, sack_payload_length);
+                sendto(send_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr_to, sizeof(client_addr_to));
 
                 if(do_print) printf("\n\n");
             }
@@ -187,16 +183,10 @@ int main() {
 
     // printf("over with server");
 
-    // wait 100ms
-    usleep(100000);
-
-    for (int i = 0; i < 20; i++){
-        if(do_print) printf("Sending final ACKS %d\n", i);
-        for (int ack_n = first_seq - WINDOW_SIZE; ack_n <= first_seq; ack_n++) {
-            create_ack(&buffer, ack_n);
-            sendto(send_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr_to, sizeof(client_addr_to));
-        }
-        usleep(10000);
+    // send 20 "last" packets to the client
+    for (int i = 0; i < 20; i++) {
+        build_packet(&buffer, 0, 0, 1, 1, 0, "");
+        sendto(send_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr_to, sizeof(client_addr_to));
     }
 
     fclose(fp);
