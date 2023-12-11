@@ -4,6 +4,7 @@
         "iosfwd": "c",
         "chrono": "cpp",
         "limits": "cpp",
-        "algorithm": "cpp"
+        "algorithm": "cpp",
+        "ratio": "cpp"
     }
 }

@@ -33,7 +33,10 @@ int create_ack(struct packet* pkt, unsigned short ack_n, char *sack_payload, uns
 }
 
 int write_packet_to_file(struct packet* pkt, FILE* fp) {
-    fwrite(pkt->payload, 1, pkt->length, fp);
+    int length;
+    get_packet_info(pkt, NULL, NULL, NULL, &length);
+
+    fwrite(pkt->payload, 1, length, fp);
     fflush(fp);
     return 0;
 }
@@ -140,16 +143,14 @@ int main() {
         while (window_state[0] == 1) {
             // write the data to the file, move all the data to the left (in window_state, window_timout, and ), append a 0, and increment first_seq.
 
-            int payload_length = packet_buffer[0]->length;
-            char payload_first_10[11];
-            memcpy(payload_first_10, packet_buffer[0]->payload, 10);
-            payload_first_10[10] = '\0';
-
-            if(do_print) printf("Writing packet %d to file, and sliding window. (len = %d, first 10 characters are %s)\n", first_seq, payload_length, payload_first_10);
+            if(do_print) printf("Writing packet %d to file, and sliding window.\n", first_seq);
 
             write_packet_to_file(packet_buffer[0], fp);
 
-            wrote_last = packet_buffer[0]->last;
+            bool last;
+            get_packet_info(packet_buffer[0], NULL, &last, NULL, NULL);
+
+            wrote_last = last;
 
             for (int i = 0; i < WINDOW_SIZE - 1; i++) {
                 window_state[i] = window_state[i + 1];
@@ -170,13 +171,24 @@ int main() {
 
         // check if we recieve a packet
         int recv = recvfrom(listen_sockfd, &recieved_packet, sizeof(recieved_packet), 0, (struct sockaddr *)&client_addr_from, &addr_size);
-        if (recv > 0 && recieved_packet.num < WINDOW_SIZE + first_seq) {
+        if (recv > 0) {
 
-            int seq_n = recieved_packet.num;
+            int num;
+            bool ack;
+            bool last;
+            int length;
+            get_packet_info(&recieved_packet, &num, &last, &ack, &length);
+
+            if (num >= WINDOW_SIZE + first_seq){
+                send_sack_packet(send_sockfd, client_addr_to, window_state, first_seq, do_print, buffer);
+                continue;
+            }
+
+            int seq_n = num;
             int slot_affected = seq_n - first_seq;
             if(do_print) printf("Recieved Packet %d.\n", seq_n);
 
-            if(recieved_packet.length <= 0 && recieved_packet.last == 0) {
+            if(length <= 0 && last == 0) {
 
                 // This is a bit weird, but the condition above mean this is a probe packet
                 if(do_print) printf("This is a probe packet, so we reply and ignore the rest.\n\n\n");

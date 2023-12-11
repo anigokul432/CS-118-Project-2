@@ -20,15 +20,22 @@ unsigned long getCurrentTimeInMicroseconds() {
 // function to create a packet with seq_n,file_segments with all the strings in order.  The packet payload is bytes seq_n * PAYLOAD_SIZE to (seq_n + 1) * PAYLOAD_SIZE - 1 (or less if the end of file)
 // return 0 if the packet is the last packet, 1 otherwise
 int create_packet(struct packet* pkt, int seq_n, char file_segments[][PAYLOAD_SIZE], long max_sequence, long file_size) {
-    build_packet(pkt, seq_n, 0, 0, PAYLOAD_SIZE, file_segments[seq_n]);
+    int length = PAYLOAD_SIZE;
+    bool last = 0;
+
+    int ret = 1;
+    
     if (seq_n == max_sequence - 1) {
-        pkt->last = 1;
-        pkt->length = (file_size % PAYLOAD_SIZE);
-        if (pkt->length == 0)
-            pkt->length = PAYLOAD_SIZE;
-        return 0;
+        last = 1;
+        length = (file_size % PAYLOAD_SIZE);
+        if (length == 0)
+            length = PAYLOAD_SIZE;
+        ret = 0;
     }
-    return 1;
+
+    build_packet(pkt, seq_n, last, 0, length, file_segments[seq_n]);
+    
+    return ret;
 }
 
 int probe_timeout( int listen_sockfd, int send_sockfd, struct packet recieved_packet, struct sockaddr_in server_addr_to, struct sockaddr_in server_addr_from, socklen_t addr_size, short do_print) {
@@ -327,19 +334,29 @@ int main(int argc, char *argv[]) {
         int recv_len = recvfrom(listen_sockfd, &recieved_packet, sizeof(recieved_packet), MSG_DONTWAIT, (struct sockaddr *)&server_addr_from, &addr_size);
         if (recv_len > 0) {
 
-            if(recieved_packet.ack && recieved_packet.last == 1) {
+            int num;
+            bool ack;
+            bool last;
+            int length;
+            get_packet_info(&recieved_packet, &num, &last, &ack, &length);
+
+            if (do_print) printf("packet meta data: ");
+            if (do_print) print_packet_binary_meta(&recieved_packet);
+            if (do_print) printf("\nRecieved packet %d, last=%d, ack=%d, length=%d\n", num, last, ack, length);
+
+            if(ack && last == 1) {
                 if(do_print) printf("Recieved last packet\n");
                 break;
             }
             
             // make sure it's an ack packet (otherwise ignore packet)
-            if (recieved_packet.ack) {
-                unsigned short ack_n = recieved_packet.num;
+            if (ack) {
+                int ack_n = num;
                 int first_slot_demanded = ack_n - first_seq;
-                int sack_length = recieved_packet.length;
+                int sack_length = length;
                 char* sack_payload = recieved_packet.payload;
 
-                if(do_print) printf("Recieved ACK %d, sack_length=%d, sack_string=", recieved_packet.num, sack_length);
+                if(do_print) printf("Recieved ACK %d, sack_length=%d, sack_string=", num, sack_length);
 
                 if(do_print){
                     for(int i = 0; i < sack_length; i++) {
