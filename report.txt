@@ -6,11 +6,11 @@ is similar to cwnd in TCP.
 
 We also keep track of the number of acks for each segment in an array.
 
-We start with concurrent = 4, is_slow_start = 1, and 
+We start with concurrent = 5, is_slow_start = 1, and 
 slow_start_threshold = 20.
 
 When we start, we are in slow start mode, and we set concurrent to 
-concurrent * 4 every time we receive an ACK for an unACKed segment.
+concurrent * 5 every time we receive an ACK for an unACKed segment.
 
 When we reach slow_start_threshold, we switch to congestion avoidance 
 mode, and we increment concurrent by 1 every time we receive an ACK for 
@@ -23,6 +23,9 @@ On failure, we use multiplicative decrease.
 If we receive 3 ACKs for a segment, we retransmit that segment and set 
 slow_start_threshold to 0.8 * concurrent, and concurrent to 
 slow_start_threshold + 1.
+
+This is still a fair process because it follows AI/MD. So two hosts
+will converge to the same value of concurrent.
 
 If a timeout occurs, we retransmit the segment and set 
 slow_start_threshold to concurrent/2, and then concurrent to 1, and we 
