@@ -4,6 +4,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/time.h>
+#include <algorithm>
 
 #include "utils.h"
 
@@ -173,9 +174,9 @@ int main(int argc, char *argv[]) {
 
 
     // all time in is microseconds = 10^-6 seconds
-    int concurrent = 1; // number of packets we can send at once, normally cwnd would vary but this is equivalent, since window size is large
+    int concurrent = 4; // number of packets we can send at once, normally cwnd would vary but this is equivalent, since window size is large
     short is_slow_start = 1;
-    int slow_start_threshold = 8;
+    int slow_start_threshold = 24;
     int concurrent_max = WINDOW_SIZE; // the absolute maximum number of packets we can send at once
     int ack_dupe_limit = 3;
 
@@ -201,7 +202,7 @@ int main(int argc, char *argv[]) {
 
     // ----- PROBE PACKET -----
 
-    unsigned long timeout_time = 2000000L; // 1 second
+    unsigned long timeout_time = 2000000L; // 2 seconds
 
     if(do_probe_timeout) {
         if(do_print) printf("Probing for timeout\n");
@@ -218,6 +219,15 @@ int main(int argc, char *argv[]) {
     unsigned long total_duplicate_acks = 0L;
 
 
+    int damper = 0;
+    int len_dupe_counter = 4;
+    int concurrent_on_dupe[len_dupe_counter];
+    for (int i = 0; i < len_dupe_counter; i++) {
+        concurrent_on_dupe[i] = 25;
+    }
+
+
+
     // ----- MAIN LOOP -----
 
     if(do_print) printf("-------------------- CLIENT -------------------\n");
@@ -228,7 +238,7 @@ int main(int argc, char *argv[]) {
     while (first_seq < max_sequence) {
 
         time = getCurrentTimeInMicroseconds();
-        
+
         // slide window as long as first packet is acked
         while (window_state[0] == 2) {
 
@@ -240,6 +250,7 @@ int main(int argc, char *argv[]) {
                 window_time_sent[i] = window_time_sent[i + 1];
                 ack_count[i] = ack_count[i + 1];
             }
+
             // set last slot to not-sent
             window_state[WINDOW_SIZE - 1] = 0;
             window_time_sent[WINDOW_SIZE - 1] = 0L;
@@ -270,8 +281,6 @@ int main(int argc, char *argv[]) {
                     if (slow_start_threshold < 1)
                         slow_start_threshold = 1;
                     concurrent = 1;
-
-                    time_of_last_timeout = time;
 
                     if(do_print) printf("Packet %d timed out. It took %ld ms, timeout=%ld, concurrent=%d, slow_start_threshold=%d\n\n\n", first_seq + i, time - window_time_sent[i], timeout_time, concurrent, slow_start_threshold);
 
@@ -341,9 +350,8 @@ int main(int argc, char *argv[]) {
 
                 total_acks_recieved++;
 
-
-                // we only will increment ack_count for the first packet that is missing
-                short found_missing_packet = 0;
+                // we only will increment ack_count for the first couple packet that is missing
+                int number_of_missing_packets_to_increase_ack_count = 1;
 
                 // go through every packet in window
                 for (int i = 0; i < WINDOW_SIZE; i++) {
@@ -367,15 +375,64 @@ int main(int argc, char *argv[]) {
 
                         // Congestion Control (ACKed packet)
                         if (is_slow_start == 1) { 
-                            concurrent *= 2;
+                            concurrent *= 4;
+
                             if (concurrent >= slow_start_threshold) {
                                 is_slow_start = 0;
                                 concurrent = slow_start_threshold;
                             }
+
                         } else {
                             // congestion avoidance
-                            if (concurrent < concurrent_max) {
-                                concurrent++;
+
+                            number_of_missing_packets_to_increase_ack_count -= 1;
+
+                            int max1 = 0;
+                            int max2 = 0;
+                            int max3 = 0;
+
+                            for (int i = 0; i < len_dupe_counter; i++) {
+                                if (concurrent_on_dupe[i] > max1) {
+                                    max3 = max2;
+                                    max2 = max1;
+                                    max1 = concurrent_on_dupe[i];
+                                } else if (concurrent_on_dupe[i] > max2) {
+                                    max3 = max2;
+                                    max2 = concurrent_on_dupe[i];
+                                } else if (concurrent_on_dupe[i] > max3) {
+                                    max3 = concurrent_on_dupe[i];
+                                }
+                            }
+
+                            int cc_thresh = 0.5 * (double)max1 + 0.3 * (double)max2 + 0.2 * (double)max3;
+
+
+                            // double avg = 0;
+                            // for (int i = 0; i < len_dupe_counter; i++) {
+                            //     avg += concurrent_on_dupe[i];
+                            // }
+                            // avg /= (double)len_dupe_counter;
+
+                            // int cc_thresh = avg;
+
+                            if(do_print) printf("concurrent=%d, cc_thresh=%d, damper=%d\n", concurrent, cc_thresh, damper);
+
+                            // Dampen concurrent growth for high throughput to prevent packet loss
+                            if (concurrent > cc_thresh + 1 && damper < 4){
+                                damper++;
+                            } else if (concurrent <= cc_thresh + 1 && concurrent > cc_thresh - 2 && damper < 3){
+                                damper++;
+                            } else if (concurrent <= cc_thresh - 2 && concurrent > cc_thresh - 5 && damper < 2){
+                                damper++;
+                            } else if (concurrent <= cc_thresh - 5 && concurrent > cc_thresh - 8 && damper < 1){
+                                damper++;
+                            } else {
+                                damper = 0;
+                                concurrent += 1;
+                            }
+                            
+                            if (concurrent > concurrent_max) {
+                                concurrent = concurrent_max;
                             }
                         }
 
@@ -385,9 +442,9 @@ int main(int argc, char *argv[]) {
                     // Handle Un-ACKed packets
                     if ( sack_index >= 0 && sack_payload[sack_index] == '0') {
 
-                        if (found_missing_packet == 0 && window_state[i] != 0){
+                        if (i < 8 && number_of_missing_packets_to_increase_ack_count > 0 && window_state[i] == 1){
                             ack_count[i]++;
-                            found_missing_packet = 1;
+                            number_of_missing_packets_to_increase_ack_count -= 1;
                         }
 
                         if (ack_count[i] >= ack_dupe_limit) {
@@ -397,18 +454,31 @@ int main(int argc, char *argv[]) {
                         
                             // set packet to not-sent
                             window_state[i] = 0;
+
+                            for (int i = 0; i < len_dupe_counter - 1; i++) {
+                                concurrent_on_dupe[i] = concurrent_on_dupe[i + 1];
+                            }
+                            concurrent_on_dupe[len_dupe_counter - 1] = concurrent;
                             
-                            // Congestion Control (Duplicate ACK)
-                            slow_start_threshold = concurrent * 0.5;
-                            if (slow_start_threshold < 1)
-                                slow_start_threshold = 1;
+                            if (time > time_of_last_timeout + 30000L)
+                            {
 
-                            concurrent = slow_start_threshold + 2;
+                                // Congestion Control (Duplicate ACK)
+                                slow_start_threshold = concurrent * 0.8;
+                                if (slow_start_threshold < 1)
+                                    slow_start_threshold = 1;
 
-                            // Ensure concurrent does not exceed max window size
-                            if (concurrent > concurrent_max) concurrent = concurrent_max;
+                                is_slow_start = 0;
 
-                            if(do_print) printf("Duplicate ACK on packet %d. concurrent=%d, slow_start_threshold=%d\n", first_seq + i, concurrent, slow_start_threshold);
+                                concurrent = slow_start_threshold + 1;
+
+                                // Ensure concurrent does not exceed max window size
+                                if (concurrent > concurrent_max) concurrent = concurrent_max;
+
+                                 time_of_last_timeout = time;
+                            }
+
+                            if(do_print) printf("Duplicate ACK on packet %d. concurrent=%d, slow_start_threshold=%d\n\n\n", first_seq + i, concurrent, slow_start_threshold);
                         }
 
                     }

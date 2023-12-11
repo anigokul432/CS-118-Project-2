@@ -126,7 +126,7 @@ int main() {
 
     unsigned long time = getCurrentTimeInMicroseconds();
     unsigned long last_time_ack_sent = time;
-    unsigned long resend_ack_time = 1500000;
+    unsigned long resend_ack_time = 1000000; // 1 second
 
 
     if(do_print) printf("-------------------- SERVER -------------------\n\n\n");

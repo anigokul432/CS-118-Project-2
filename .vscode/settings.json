@@ -1,6 +1,9 @@
 {
     "files.associations": {
         "vector": "c",
-        "iosfwd": "c"
+        "iosfwd": "c",
+        "chrono": "cpp",
+        "limits": "cpp",
+        "algorithm": "cpp"
     }
 }
