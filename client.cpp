@@ -20,7 +20,7 @@ unsigned long getCurrentTimeInMicroseconds() {
 // function to create a packet with seq_n,file_segments with all the strings in order.  The packet payload is bytes seq_n * PAYLOAD_SIZE to (seq_n + 1) * PAYLOAD_SIZE - 1 (or less if the end of file)
 // return 0 if the packet is the last packet, 1 otherwise
 int create_packet(struct packet* pkt, int seq_n, char file_segments[][PAYLOAD_SIZE], long max_sequence, long file_size) {
-    build_packet(pkt, seq_n, 0, 0, 0, PAYLOAD_SIZE, file_segments[seq_n]);
+    build_packet(pkt, seq_n, 0, 0, PAYLOAD_SIZE, file_segments[seq_n]);
     if (seq_n == max_sequence - 1) {
         pkt->last = 1;
         pkt->length = (file_size % PAYLOAD_SIZE);
@@ -47,7 +47,7 @@ int probe_timeout( int listen_sockfd, int send_sockfd, struct packet recieved_pa
         if (time > time_sent_probe + probe_timeout_time){
             if(do_print) printf("Sending probe packet\n");
             struct packet pkt;
-            build_packet(&pkt, 0, 0, 0, 0, 0, ""); 
+            build_packet(&pkt, 0, 0, 0, 0, ""); 
             sendto(send_sockfd, &pkt, sizeof(pkt), 0, (struct sockaddr *)&server_addr_to, sizeof(server_addr_to));
             time_sent_probe = getCurrentTimeInMicroseconds();
         }
@@ -174,9 +174,9 @@ int main(int argc, char *argv[]) {
 
 
     // all time in is microseconds = 10^-6 seconds
-    int concurrent = 4; // number of packets we can send at once, normally cwnd would vary but this is equivalent, since window size is large
+    int concurrent = 5; // number of packets we can send at once, normally cwnd would vary but this is equivalent, since window size is large
     short is_slow_start = 1;
-    int slow_start_threshold = 24;
+    int slow_start_threshold = 25;
     int concurrent_max = WINDOW_SIZE; // the absolute maximum number of packets we can send at once
     int ack_dupe_limit = 3;
 
@@ -223,7 +223,7 @@ int main(int argc, char *argv[]) {
     int len_dupe_counter = 4;
     int concurrent_on_dupe[len_dupe_counter];
     for (int i = 0; i < len_dupe_counter; i++) {
-        concurrent_on_dupe[i] = 25;
+        concurrent_on_dupe[i] = 27;
     }
 
 
@@ -334,12 +334,12 @@ int main(int argc, char *argv[]) {
             
             // make sure it's an ack packet (otherwise ignore packet)
             if (recieved_packet.ack) {
-                unsigned short ack_n = recieved_packet.acknum;
+                unsigned short ack_n = recieved_packet.num;
                 int first_slot_demanded = ack_n - first_seq;
                 int sack_length = recieved_packet.length;
                 char* sack_payload = recieved_packet.payload;
 
-                if(do_print) printf("Recieved ACK %d, sack_length=%d, sack_string=", recieved_packet.acknum, sack_length);
+                if(do_print) printf("Recieved ACK %d, sack_length=%d, sack_string=", recieved_packet.num, sack_length);
 
                 if(do_print){
                     for(int i = 0; i < sack_length; i++) {
@@ -375,7 +375,7 @@ int main(int argc, char *argv[]) {
 
                         // Congestion Control (ACKed packet)
                         if (is_slow_start == 1) { 
-                            concurrent *= 4;
+                            concurrent *= 5;
 
                             if (concurrent >= slow_start_threshold) {
                                 is_slow_start = 0;
@@ -406,6 +406,13 @@ int main(int argc, char *argv[]) {
 
                             int cc_thresh = 0.5 * (double)max1 + 0.3 * (double)max2 + 0.2 * (double)max3;
 
+                            if (cc_thresh < 27) {
+                                cc_thresh = 27;
+                            }
+                            if (cc_thresh > 30) {
+                                cc_thresh = 30;
+                            }
+
 
                             // double avg = 0;
                             // for (int i = 0; i < len_dupe_counter; i++) {
@@ -418,13 +425,11 @@ int main(int argc, char *argv[]) {
                             if(do_print) printf("concurrent=%d, cc_thresh=%d, damper=%d\n", concurrent, cc_thresh, damper);
 
                             // Dampen concurrent growth for high throughput to prevent packet loss
-                            if (concurrent > cc_thresh + 1 && damper < 4){
+                            if (concurrent > cc_thresh + 1 && damper < 6){
                                 damper++;
-                            } else if (concurrent <= cc_thresh + 1 && concurrent > cc_thresh - 2 && damper < 3){
+                            } else if (concurrent <= cc_thresh + 1 && concurrent > cc_thresh - 1 && damper < 3){
                                 damper++;
-                            } else if (concurrent <= cc_thresh - 2 && concurrent > cc_thresh - 5 && damper < 2){
-                                damper++;
-                            } else if (concurrent <= cc_thresh - 5 && concurrent > cc_thresh - 8 && damper < 1){
+                            } else if (concurrent <= cc_thresh - 1 && concurrent > cc_thresh - 3 && damper < 2){
                                 damper++;
                             } else {
                                 damper = 0;
@@ -475,7 +480,7 @@ int main(int argc, char *argv[]) {
                                 // Ensure concurrent does not exceed max window size
                                 if (concurrent > concurrent_max) concurrent = concurrent_max;
 
-                                 time_of_last_timeout = time;
+                                time_of_last_timeout = time;
                             }
 
                             if(do_print) printf("Duplicate ACK on packet %d. concurrent=%d, slow_start_threshold=%d\n\n\n", first_seq + i, concurrent, slow_start_threshold);
@@ -506,6 +511,7 @@ int main(int argc, char *argv[]) {
         printf("Total timeouts: %ld\n", total_timeouts);
         printf("Total duplicate acks: %ld\n", total_duplicate_acks);
         printf("Throughput: %f bytes/second\n", file_size / total_time_in_seconds);
+        printf("Size of packet: %ld bytes\n", sizeof(struct packet));
     }
  
     

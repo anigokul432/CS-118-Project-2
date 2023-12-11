@@ -28,7 +28,7 @@ void print_window_state(short window_state[WINDOW_SIZE], int first_seq, short do
 
 // function to create a packet with ack_n, no payload, no seq_n, no last, ack = 1
 int create_ack(struct packet* pkt, unsigned short ack_n, char *sack_payload, unsigned int sack_payload_length) {
-    build_packet(pkt, 0, ack_n, 0, 1, sack_payload_length, sack_payload);
+    build_packet(pkt, ack_n, 0, 1, sack_payload_length, sack_payload);
     return 0;
 }
 
@@ -170,9 +170,9 @@ int main() {
 
         // check if we recieve a packet
         int recv = recvfrom(listen_sockfd, &recieved_packet, sizeof(recieved_packet), 0, (struct sockaddr *)&client_addr_from, &addr_size);
-        if (recv > 0 && recieved_packet.seqnum < WINDOW_SIZE + first_seq) {
+        if (recv > 0 && recieved_packet.num < WINDOW_SIZE + first_seq) {
 
-            int seq_n = recieved_packet.seqnum;
+            int seq_n = recieved_packet.num;
             int slot_affected = seq_n - first_seq;
             if(do_print) printf("Recieved Packet %d.\n", seq_n);
 
@@ -180,7 +180,7 @@ int main() {
 
                 // This is a bit weird, but the condition above mean this is a probe packet
                 if(do_print) printf("This is a probe packet, so we reply and ignore the rest.\n\n\n");
-                build_packet(&buffer, 0, 0, 0, 0, 0, "");
+                build_packet(&buffer, 0, 0, 0, 0, "");
                 sendto(send_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr_to, sizeof(client_addr_to));
 
             }else{
@@ -217,7 +217,7 @@ int main() {
 
     // send 20 "last" packets to the client
     for (int i = 0; i < 20; i++) {
-        build_packet(&buffer, 0, 0, 1, 1, 0, "");
+        build_packet(&buffer, 0, 1, 1, 0, "");
         sendto(send_sockfd, &buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr_to, sizeof(client_addr_to));
     }
 
